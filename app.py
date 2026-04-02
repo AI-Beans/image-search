@@ -30,6 +30,11 @@ MODEL_LOADED = False
 MODEL_LOADING = False
 SEARCH_ENGINE = None
 
+INDEX_PROGRESS = {"current": 0, "total": 0, "done": False}
+INDEX_PROGRESS_LOCK = threading.Lock()
+INDEX_TASK_RESULT = {"results": None, "error": None}
+INDEX_TASK_LOCK = threading.Lock()
+
 
 def get_engine():
     global SEARCH_ENGINE
@@ -85,6 +90,14 @@ def status():
     except Exception:
         pass
 
+    reranker_status = {}
+    try:
+        from embedder import get_reranker_status
+
+        reranker_status = get_reranker_status()
+    except Exception:
+        pass
+
     return jsonify(
         {
             "model_loaded": MODEL_LOADED or SEARCH_ENGINE is not None,
@@ -95,6 +108,9 @@ def status():
             "model_path": model_info.get("model_path", "Qwen/Qwen3-VL-Embedding-8B"),
             "model_name": model_info.get("model_name", "Qwen3-VL-Embedding-8B"),
             "model_size": model_info.get("model_size", "8b"),
+            "reranker_enabled": reranker_status.get("reranker_enabled", False),
+            "reranker_loaded": reranker_status.get("reranker_loaded", False),
+            "reranker_loading": reranker_status.get("reranker_loading", False),
         }
     )
 
@@ -153,7 +169,7 @@ def switch_model_endpoint():
 
 @app.route("/api/index", methods=["POST"])
 def index_images():
-    global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE
+    global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE, INDEX_PROGRESS, INDEX_TASK_RESULT
     if "files" not in request.files:
         return jsonify({"error": "No files provided"}), 400
 
@@ -167,8 +183,6 @@ def index_images():
             MODEL_LOADED = True
         except Exception as e:
             return jsonify({"error": f"Model not loaded: {e}"}), 500
-
-    from embedder import add_image
 
     results = []
     saved_paths = []
@@ -193,11 +207,43 @@ def index_images():
         try:
             from embedder import add_image_batch
 
-            paths = [p[0] for p in saved_paths]
-            batch_results = add_image_batch(paths)
-            for br, (_, orig_name) in zip(batch_results, saved_paths):
-                br["original_name"] = orig_name
-                results.append(br)
+            with INDEX_PROGRESS_LOCK:
+                INDEX_PROGRESS = {
+                    "current": 0,
+                    "total": len(saved_paths),
+                    "done": False,
+                }
+            with INDEX_TASK_LOCK:
+                INDEX_TASK_RESULT = {"results": None, "error": None}
+
+            def progress_callback(current, total):
+                with INDEX_PROGRESS_LOCK:
+                    INDEX_PROGRESS["current"] = current
+                    INDEX_PROGRESS["done"] = current >= total
+
+            def background_task():
+                try:
+                    paths = [p[0] for p in saved_paths]
+                    batch_results = add_image_batch(
+                        paths, progress_callback=progress_callback
+                    )
+                    task_results = []
+                    for br, (_, orig_name) in zip(batch_results, saved_paths):
+                        br["original_name"] = orig_name
+                        task_results.append(br)
+                    with INDEX_TASK_LOCK:
+                        INDEX_TASK_RESULT["results"] = task_results
+                    with INDEX_PROGRESS_LOCK:
+                        INDEX_PROGRESS["done"] = True
+                except Exception as e:
+                    with INDEX_TASK_LOCK:
+                        INDEX_TASK_RESULT["error"] = str(e)
+                    with INDEX_PROGRESS_LOCK:
+                        INDEX_PROGRESS["done"] = True
+
+            t = threading.Thread(target=background_task, daemon=True)
+            t.start()
+            return jsonify({"status": "processing", "task_id": "index"})
         except Exception as e:
             return jsonify({"error": f"Embedding failed: {e}"}), 500
 
@@ -215,12 +261,36 @@ def index_images():
     )
 
 
+@app.route("/api/index/progress")
+def index_progress():
+    global INDEX_PROGRESS, INDEX_TASK_RESULT
+    with INDEX_PROGRESS_LOCK:
+        prog = dict(INDEX_PROGRESS)
+    with INDEX_TASK_LOCK:
+        task_result = (
+            dict(INDEX_TASK_RESULT)
+            if INDEX_TASK_RESULT["results"] is not None
+            else None
+        )
+        task_error = INDEX_TASK_RESULT["error"]
+    result = {"progress": prog}
+    if task_result is not None:
+        result["results"] = task_result
+        result["total_indexed"] = len(
+            [r for r in task_result if r.get("status") != "skipped"]
+        )
+    if task_error:
+        result["error"] = task_error
+    return jsonify(result)
+
+
 @app.route("/api/search", methods=["POST"])
 def search_images():
     global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE
     data = request.get_json()
     query = data.get("query", "").strip()
     top_k = data.get("top_k", 5)
+    use_reranker = data.get("use_reranker", False)
 
     if not query:
         return jsonify({"error": "Empty query"}), 400
@@ -232,15 +302,56 @@ def search_images():
         except Exception as e:
             return jsonify({"error": f"Model not loaded: {e}"}), 500
 
-    from embedder import search
+    import time
 
     try:
-        results = search(query, top_k=top_k)
+        start_time = time.time()
+        if use_reranker:
+            from embedder import search_with_rerank
+
+            results = search_with_rerank(query, top_k=top_k)
+        else:
+            from embedder import search
+
+            results = search(query, top_k=top_k)
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        reranker_used = use_reranker and any("reranker_score" in r for r in results)
+
         return jsonify(
-            {"query": query, "results": results, "total_searched": len(results)}
+            {
+                "query": query,
+                "results": results,
+                "total_searched": len(results),
+                "time_ms": round(elapsed_ms, 2),
+                "reranker_used": reranker_used,
+            }
         )
     except Exception as e:
         return jsonify({"error": f"Search failed: {e}"}), 500
+
+
+@app.route("/api/reranker/toggle", methods=["POST"])
+def toggle_reranker():
+    data = request.get_json() or {}
+    enabled = data.get("enabled", False)
+    try:
+        from embedder import set_reranker_enabled
+
+        result = set_reranker_enabled(enabled)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/reranker/status")
+def reranker_status():
+    try:
+        from embedder import get_reranker_status
+
+        return jsonify(get_reranker_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/stats")

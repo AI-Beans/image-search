@@ -31,7 +31,17 @@ MODEL_MAP = {
     "2b": "Qwen/Qwen3-VL-Embedding-2B",
 }
 
+RERANKER_MODEL_MAP = {
+    "2b": "Qwen/Qwen3-VL-Reranker-2B",
+    "8b": "Qwen/Qwen3-VL-Reranker-8B",
+}
+
+RERANKER_CANDIDATE_MULTIPLIER = 3
+
 _model = None
+_reranker_model = None
+_reranker_enabled = os.environ.get("QWEN3VL_RERANKER_ENABLED", "0") == "1"
+_reranker_loading = False
 _faiss_index = None
 _metadata = []
 _current_model_size = os.environ.get("QWEN3VL_MODEL_SIZE", "8b")
@@ -155,6 +165,8 @@ def add_image(image_path: str, filename: str) -> dict:
     emb = embed_image(image_path)
 
     img = Image.open(image_path)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
     thumb_size = (256, 256)
     img.thumbnail(thumb_size, Image.Resampling.LANCZOS)
     thumb_name = f"thumb_{filename}"
@@ -178,33 +190,48 @@ def add_image(image_path: str, filename: str) -> dict:
     return entry
 
 
-def add_image_batch(image_paths: list) -> list:
+def add_image_batch(
+    image_paths: list, batch_size: int = 8, progress_callback=None
+) -> list:
     model = get_model()
-    inputs = [{"image": p, "instruction": _instruction} for p in image_paths]
-    embeddings = model.process(inputs).cpu().to(torch.float32).numpy()
-
+    all_embeddings = []
     results = []
-    for i, path in enumerate(image_paths):
-        filename = Path(path).name
-        img = Image.open(path)
-        img.thumbnail((256, 256), Image.Resampling.LANCZOS)
-        thumb_name = f"thumb_{filename}"
-        thumb_path = THUMBS_DIR / thumb_name
-        img.save(str(thumb_path), "JPEG", quality=85)
+    total = len(image_paths)
 
-        entry = {
-            "id": filename,
-            "filename": filename,
-            "original_path": str(path),
-            "thumbnail": f"/static/thumbnails/{thumb_name}",
-            "indexed_at": datetime.now().isoformat(),
-        }
-        _metadata.append(entry)
-        results.append(entry)
+    for batch_start in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[batch_start : batch_start + batch_size]
+        inputs = [{"image": p, "instruction": _instruction} for p in batch_paths]
+        embeddings = model.process(inputs).cpu().to(torch.float32).numpy()
+        all_embeddings.append(embeddings)
+
+        for i, path in enumerate(batch_paths):
+            filename = Path(path).name
+            img = Image.open(path)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.thumbnail((256, 256), Image.Resampling.LANCZOS)
+            thumb_name = f"thumb_{filename}"
+            thumb_path = THUMBS_DIR / thumb_name
+            img.save(str(thumb_path), "JPEG", quality=85)
+
+            entry = {
+                "id": filename,
+                "filename": filename,
+                "original_path": str(path),
+                "thumbnail": f"/static/thumbnails/{thumb_name}",
+                "indexed_at": datetime.now().isoformat(),
+            }
+            _metadata.append(entry)
+            results.append(entry)
+
+        if progress_callback:
+            processed = min(batch_start + batch_size, total)
+            progress_callback(processed, total)
 
     global _faiss_index
-    _ensure_index(embeddings.shape[1])
-    _faiss_index.add(embeddings)
+    all_embeddings = np.concatenate(all_embeddings, axis=0)
+    _ensure_index(all_embeddings.shape[1])
+    _faiss_index.add(all_embeddings)
 
     _save_index()
     return results
@@ -240,7 +267,111 @@ def get_stats() -> dict:
         "index_type": type(_faiss_index).__name__
         if _faiss_index is not None
         else "none",
+        "reranker_enabled": _reranker_enabled,
+        "reranker_loaded": _reranker_model is not None,
+        "reranker_loading": _reranker_loading,
     }
+
+
+def _reranker_model_path() -> str:
+    return os.environ.get(
+        "QWEN3VL_RERANKER_MODEL_PATH",
+        RERANKER_MODEL_MAP.get(_current_model_size, RERANKER_MODEL_MAP["2b"]),
+    )
+
+
+def get_reranker():
+    global _reranker_model
+    if _reranker_model is None:
+        from qwen3_vl_reranker import Qwen3VLReranker
+
+        path = _reranker_model_path()
+        print(f"Loading reranker model from {path} ...")
+        dtype = torch.float32
+        if torch.cuda.is_available():
+            dtype = torch.bfloat16
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            dtype = torch.float16
+        _reranker_model = Qwen3VLReranker(
+            model_name_or_path=path,
+            torch_dtype=dtype,
+        )
+        print("Reranker model loaded.")
+    return _reranker_model
+
+
+def set_reranker_enabled(enabled: bool) -> dict:
+    global _reranker_enabled
+    _reranker_enabled = enabled
+    return {
+        "reranker_enabled": _reranker_enabled,
+        "reranker_loaded": _reranker_model is not None,
+    }
+
+
+def get_reranker_status() -> dict:
+    return {
+        "reranker_enabled": _reranker_enabled,
+        "reranker_loaded": _reranker_model is not None,
+        "reranker_loading": _reranker_loading,
+        "reranker_model_path": _reranker_model_path(),
+    }
+
+
+def search_with_rerank(query: str, top_k: int = 5) -> list:
+    global _reranker_loading
+    if _faiss_index is None or _faiss_index.ntotal == 0:
+        return []
+
+    candidate_k = min(top_k * RERANKER_CANDIDATE_MULTIPLIER, _faiss_index.ntotal)
+    q_emb = embed_text(query).astype("float32").reshape(1, -1)
+    scores, indices = _faiss_index.search(q_emb, candidate_k)
+
+    candidates = []
+    for score, idx in zip(scores[0], indices[0]):
+        if idx < 0:
+            break
+        entry = dict(_metadata[idx])
+        entry["embedding_score"] = float(score)
+        entry["score"] = float(score)
+        candidates.append((idx, entry))
+
+    if not candidates:
+        return []
+
+    _reranker_loading = True
+    try:
+        reranker = get_reranker()
+        documents = []
+        valid_candidates = []
+        for idx, entry in candidates:
+            image_path = entry.get("original_path", "")
+            if image_path and Path(image_path).exists():
+                documents.append({"image": image_path})
+                valid_candidates.append((idx, entry))
+
+        if not documents:
+            return [e for _, e in candidates[:top_k]]
+
+        reranker_inputs = {
+            "instruction": _instruction,
+            "query": {"text": query},
+            "documents": documents,
+        }
+        reranker_scores = reranker.process(reranker_inputs)
+
+        for i, (idx, entry) in enumerate(valid_candidates):
+            if i < len(reranker_scores):
+                entry["reranker_score"] = float(reranker_scores[i])
+                entry["score"] = float(reranker_scores[i])
+
+        valid_candidates.sort(key=lambda x: x[1].get("reranker_score", 0), reverse=True)
+        return [e for _, e in valid_candidates[:top_k]]
+    except Exception as e:
+        print(f"Reranker failed, falling back to embedding scores: {e}")
+        return [e for _, e in candidates[:top_k]]
+    finally:
+        _reranker_loading = False
 
 
 def reset():

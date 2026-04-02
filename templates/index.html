@@ -4,239 +4,249 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Image Semantic Search — Qwen3-VL-Embedding</title>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#09090b;--bg2:#111114;--bg3:#18181b;--bg4:#1e1e22;
-  --border:#27272a;--border2:#3f3f46;
-  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;--text4:#52525b;
-  --accent:#f97316;--accent2:#fb923c;--accent-dim:rgba(249,115,22,.1);
-  --green:#22c55e;--green-dim:rgba(34,197,94,.1);
-  --blue:#3b82f6;--blue-dim:rgba(59,130,246,.1);
-  --red:#ef4444;--red-dim:rgba(239,68,68,.1);
-  --radius:12px;--radius-sm:8px;
-  --font:'Geist',system-ui,sans-serif;
-  --mono:'Geist Mono',monospace;
+--bg:#0a0a0a;--bg2:#141414;--bg3:#1a1a1a;--bg4:#222;
+--border:#2a2a2a;--border2:#3a3a3a;
+--text:#fafafa;--text2:#a0a0a0;--text3:#666;--text4:#444;
+--accent:#E67E22;--accent2:#F39C12;--accent-dim:rgba(230,126,34,.12);
+--accent-hover:#D35400;
+--green:#27ae60;--blue:#3498db;--red:#e74c3c;
+--radius:16px;--radius-sm:10px;--radius-xs:6px;
+--font:'Inter',system-ui,-apple-system,sans-serif;
+--mono:'JetBrains Mono',monospace;
 }
-html{font-size:16px}
-body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+html{font-size:16px;color-scheme:dark}
+body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased}
 
-.app{max-width:1200px;margin:0 auto;padding:24px 28px}
+.app{min-height:100vh;max-width:1400px;margin:0 auto;padding:0 40px}
+@media(max-width:768px){.app{padding:0 20px}}
 
-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border)}
-.logo{display:flex;align-items:center;gap:12px}
-.logo-mark{width:36px;height:36px;background:var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center}
-.logo-mark svg{width:20px;height:20px;stroke:#000;fill:none;stroke-width:2;stroke-linecap:round}
-.logo-info h1{font-size:18px;font-weight:600;letter-spacing:-.02em}
-.logo-info p{font-size:12px;color:var(--text3);margin-top:1px}
-.header-badges{display:flex;gap:8px}
-.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:16px;font-size:11px;font-weight:500}
-.badge-green{background:var(--green-dim);color:var(--green)}
-.badge-blue{background:var(--blue-dim);color:var(--blue)}
-.badge-orange{background:var(--accent-dim);color:var(--accent)}
-.badge-dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+header{display:flex;align-items:center;justify-content:space-between;padding:24px 0;border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:14px}
+.logo-icon{width:42px;height:42px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:12px;display:flex;align-items:center;justify-content:center}
+.logo-icon svg{width:22px;height:22px;stroke:#000;fill:none;stroke-width:2;stroke-linecap:round}
+.logo-text h1{font-size:17px;font-weight:600;letter-spacing:-.03em}
+.logo-text p{font-size:12px;color:var(--text3);margin-top:1px}
+.header-actions{display:flex;align-items:center;gap:16px}
+.reranker-toggle{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:50px;font-size:12px;color:var(--text3);cursor:pointer;transition:all .2s;user-select:none}
+.reranker-toggle:hover{border-color:var(--border2)}
+.reranker-toggle.active{border-color:var(--blue);color:var(--blue)}
+.reranker-toggle .toggle-track{width:32px;height:18px;background:var(--bg4);border-radius:9px;position:relative;transition:background .2s}
+.reranker-toggle.active .toggle-track{background:var(--blue)}
+.reranker-toggle .toggle-thumb{width:14px;height:14px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;transition:left .2s}
+.reranker-toggle.active .toggle-thumb{left:16px}
+.reranker-toggle .reranker-status{font-size:10px;opacity:.6;margin-left:4px}
+.model-indicator{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:50px;font-size:13px;cursor:pointer;transition:all .2s}
+.model-indicator:hover{border-color:var(--accent)}
+.model-indicator .dot{width:8px;height:8px;border-radius:50%;background:var(--text4);transition:background .3s}
+.model-indicator.ready .dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+.model-indicator.loading .dot{background:var(--accent);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.model-indicator .label{color:var(--text2)}
+.model-indicator.ready .label{color:var(--green)}
+.model-indicator.loading .label{color:var(--accent)}
 
-.model-bar{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px}
-.model-info{display:flex;align-items:center;gap:12px}
-.model-icon{width:32px;height:32px;border-radius:8px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:16px}
-.model-name{font-size:13px;font-weight:500}
-.model-meta{font-size:11px;color:var(--text4);margin-top:2px}
-.btn{padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;font-family:var(--font);cursor:pointer;transition:all .15s;border:none;outline:none}
-.btn-primary{background:var(--accent);color:#000}
-.btn-primary:hover{background:var(--accent2)}
-.btn-primary:disabled{opacity:.5;cursor:not-allowed}
-.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text2)}
-.btn-ghost:hover{border-color:var(--border2);color:var(--text)}
-.btn-danger{background:transparent;border:1px solid var(--red);color:var(--red);font-size:12px;padding:5px 12px}
-.btn-danger:hover{background:var(--red-dim)}
-.btn-sm{padding:5px 12px;font-size:12px}
+.hero{padding:40px 0 30px;text-align:center}
+.hero h2{font-size:36px;font-weight:700;letter-spacing:-.04em;line-height:1.1;margin-bottom:12px}
+.hero h2 span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero p{font-size:16px;color:var(--text2);max-width:500px;margin:0 auto}
 
-.search-section{margin-bottom:28px}
-.search-box{position:relative;max-width:100%}
-.search-input{width:100%;padding:16px 56px 16px 20px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:15px;font-family:var(--font);outline:none;transition:border .2s}
-.search-input:focus{border-color:var(--accent)}
+.search-container{max-width:720px;margin:0 auto 50px;position:relative}
+.search-wrapper{position:relative;display:flex;align-items:center;background:var(--bg2);border:2px solid var(--border);border-radius:60px;padding:8px 8px 8px 28px;transition:border-color .2s,box-shadow .2s}
+.search-wrapper:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-dim)}
+.search-input{flex:1;background:transparent;border:none;outline:none;font-size:18px;font-family:var(--font);color:var(--text);padding:12px 0}
 .search-input::placeholder{color:var(--text4)}
-.search-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:var(--accent);color:#000;border:none;padding:8px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:5px}
-.search-btn:hover{background:var(--accent2)}
-.search-hints{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-.search-chip{padding:5px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:16px;font-size:12px;color:var(--text2);cursor:pointer;transition:all .15s}
-.search-chip:hover{border-color:var(--accent);color:var(--accent)}
+.search-btn{background:var(--accent);color:#000;border:none;padding:14px 28px;border-radius:50px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;transition:background .2s;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.search-btn:hover{background:var(--accent-hover)}
+.search-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round}
+.search-history{position:absolute;top:calc(100% + 8px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:8px;z-index:100;display:none}
+.search-history.show{display:block}
+.search-history-item{padding:10px 14px;border-radius:var(--radius-sm);font-size:14px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:10px;transition:background .15s}
+.search-history-item:hover{background:var(--bg3);color:var(--text)}
+.search-history-item svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;opacity:.5}
+.history-clear{font-size:12px;color:var(--text4);padding:8px 14px;border-top:1px solid var(--border);margin-top:4px;cursor:pointer;text-align:center}
+.history-clear:hover{color:var(--text2)}
 
-.main-grid{display:grid;grid-template-columns:320px 1fr;gap:24px;align-items:start}
-@media(max-width:800px){.main-grid{grid-template-columns:1fr}}
+.search-hints{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:20px}
+.hint-chip{padding:8px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:50px;font-size:13px;color:var(--text2);cursor:pointer;transition:all .2s}
+.hint-chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+
+.stats-bar{display:flex;justify-content:center;gap:40px;padding:20px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:40px}
+.stat-item{text-align:center}
+.stat-value{font-size:28px;font-weight:700;font-family:var(--mono);color:var(--accent)}
+.stat-label{font-size:12px;color:var(--text3);margin-top:4px;text-transform:uppercase;letter-spacing:.05em}
+
+.main-grid{display:grid;grid-template-columns:340px 1fr;gap:40px;padding-bottom:80px}
+@media(max-width:900px){.main-grid{grid-template-columns:1fr}}
 
 .panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius)}
-.panel-header{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-.panel-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
-.panel-title .count{font-size:11px;color:var(--text4);font-weight:400}
-.panel-body{padding:16px 18px}
+.panel-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.panel-title{font-size:14px;font-weight:600}
+.panel-body{padding:20px 24px}
 
-.upload-zone{border:2px dashed var(--border);border-radius:var(--radius-sm);padding:32px 20px;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+.upload-zone{border:2px dashed var(--border);border-radius:var(--radius-sm);padding:40px 20px;text-align:center;cursor:pointer;transition:all .2s;position:relative}
 .upload-zone:hover,.upload-zone.dragover{border-color:var(--accent);background:var(--accent-dim)}
 .upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer}
-.upload-icon{margin:0 auto 12px;width:40px;height:40px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;color:var(--text3)}
-.upload-icon svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}
-.upload-text{font-size:13px;color:var(--text2)}
+.upload-icon{width:48px;height:48px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+.upload-icon svg{width:22px;height:22px;stroke:var(--text3);fill:none;stroke-width:1.8;stroke-linecap:round}
+.upload-text{font-size:14px;color:var(--text2)}
 .upload-text strong{color:var(--text)}
-.upload-sub{font-size:11px;color:var(--text4);margin-top:4px}
+.upload-sub{font-size:12px;color:var(--text4);margin-top:4px}
 
-.image-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:12px;max-height:400px;overflow-y:auto}
-.image-thumb{position:relative;aspect-ratio:1;border-radius:var(--radius-sm);overflow:hidden;cursor:pointer;border:2px solid transparent;transition:border .15s}
-.image-thumb:hover{border-color:var(--border2)}
-.image-thumb img{width:100%;height:100%;object-fit:cover}
-.image-thumb .score-badge{position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.75);color:var(--text);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;font-family:var(--mono);backdrop-filter:blur(4px)}
-.image-thumb .rank-badge{position:absolute;top:4px;left:4px;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#000}
-.rank-1{background:var(--accent)}
-.rank-2{background:var(--green)}
-.rank-3{background:var(--blue)}
-.rank-n{background:var(--text3)}
+.library-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
+.library-item{aspect-ratio:1;border-radius:var(--radius-sm);overflow:hidden;cursor:pointer;border:2px solid transparent;transition:border-color .15s}
+.library-item:hover{border-color:var(--accent)}
+.library-item img{width:100%;height:100%;object-fit:cover}
 
-.results-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.results-info{font-size:13px;color:var(--text3)}
+.results-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.results-info{font-size:14px;color:var(--text2)}
 .results-info strong{color:var(--text)}
+.results-info .time{color:var(--green);font-family:var(--mono);font-size:13px;margin-left:12px}
+.results-count{font-size:13px;color:var(--text3)}
 
-.results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
-.result-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:all .2s;cursor:pointer}
-.result-card:hover{border-color:var(--border2);transform:translateY(-2px)}
-.result-card .card-img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:var(--bg3)}
-.result-card .card-body{padding:12px 14px}
-.result-card .card-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px}
-.result-card .card-footer{display:flex;align-items:center;justify-content:space-between}
-.result-card .card-score{font-size:12px;font-weight:600;font-family:var(--mono)}
-.result-card .score-bar{width:60px;height:4px;background:var(--bg4);border-radius:2px;overflow:hidden}
-.result-card .score-fill{height:100%;border-radius:2px;transition:width .5s cubic-bezier(.16,1,.3,1)}
+.results-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+@media(max-width:1200px){.results-grid{grid-template-columns:repeat(2,1fr)}}
+.result-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all .25s}
+.result-card:hover{border-color:var(--border2);transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.4)}
+.result-img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:var(--bg3)}
+.result-body{padding:16px}
+.result-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:10px}
+.result-footer{display:flex;align-items:center;justify-content:space-between}
+.result-score{font-size:14px;font-weight:600;font-family:var(--mono)}
+.score-bar{width:80px;height:4px;background:var(--bg4);border-radius:2px;overflow:hidden}
+.score-fill{height:100%;border-radius:2px;transition:width .6s cubic-bezier(.16,1,.3,1)}
 
-.empty-state{text-align:center;padding:60px 20px;color:var(--text3);grid-column:1/-1}
-.empty-icon{width:52px;height:52px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px}
-.empty-text{font-size:14px;color:var(--text2);margin-bottom:4px}
-.empty-sub{font-size:12px;color:var(--text4)}
+.empty-state{text-align:center;padding:80px 40px}
+.empty-icon{width:64px;height:64px;border-radius:50%;background:var(--bg2);display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+.empty-icon svg{width:28px;height:28px;stroke:var(--text3);fill:none;stroke-width:1.5}
+.empty-text{font-size:16px;color:var(--text2);margin-bottom:6px}
+.empty-sub{font-size:13px;color:var(--text4)}
 
-.loading{display:flex;align-items:center;gap:10px;padding:20px;color:var(--text3);font-size:13px}
-.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+.loading{display:flex;align-items:center;gap:12px;padding:40px;color:var(--text3);font-size:14px}
+.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:1000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s}
 .modal-overlay.show{opacity:1;pointer-events:auto}
-.modal{max-width:90vw;max-height:90vh;position:relative}
-.modal img{max-width:100%;max-height:85vh;border-radius:var(--radius);display:block}
-.modal-close{position:absolute;top:-12px;right:-12px;width:32px;height:32px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px}
+.modal img{max-width:90vw;max-height:90vh;border-radius:var(--radius);display:block}
+.modal-close{position:absolute;top:20px;right:20px;width:40px;height:40px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;transition:background .15s}
+.modal-close:hover{background:var(--bg4)}
 
-.stat-row{display:flex;gap:12px;margin-top:12px}
-.stat-mini{flex:1;background:var(--bg3);border-radius:var(--radius-sm);padding:10px 12px}
-.stat-mini .label{font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:.04em}
-.stat-mini .value{font-size:16px;font-weight:600;font-family:var(--mono);margin-top:2px}
-
-.log-line{font-family:var(--mono);font-size:11px;color:var(--text4);line-height:1.8;margin-top:8px}
-.log-line .ok{color:var(--green)}
-.log-line .pending{color:var(--accent)}
-
-.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;color:var(--text);z-index:1001;transform:translateY(80px);opacity:0;transition:all .3s cubic-bezier(.16,1,.3,1)}
+.toast{position:fixed;bottom:30px;right:30px;padding:14px 24px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;color:var(--text);z-index:1001;transform:translateY(100px);opacity:0;transition:all .3s}
 .toast.show{transform:translateY(0);opacity:1}
-.toast.success{border-color:var(--green);background:rgba(34,197,94,.08)}
-.toast.error{border-color:var(--red);background:rgba(239,68,68,.08)}
+.toast.success{border-color:var(--green)}
+.toast.error{border-color:var(--red)}
 
-.fade-in{animation:fadeIn .3s ease}
-@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .4s ease forwards;opacity:0}
+@keyframes fadeIn{to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
 <body>
 <div class="app">
-  <header>
-    <div class="logo">
-      <div class="logo-mark"><svg><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg></div>
-      <div class="logo-info">
-        <h1>Image Semantic Search</h1>
-        <p>Powered by Qwen3-VL-Embedding</p>
-      </div>
-    </div>
-    <div class="header-badges">
-      <span class="badge badge-blue" id="deviceBadge"><span class="badge-dot"></span><span id="deviceText">CPU</span></span>
-      <span class="badge badge-orange" id="modelBadge"><span class="badge-dot"></span><span id="modelText">Model Not Loaded</span></span>
-    </div>
-  </header>
+<header>
+<div class="logo">
+<div class="logo-icon">
+<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
+</div>
+<div class="logo-text">
+<h1>Image Search</h1>
+<p>Powered by Qwen3-VL</p>
+</div>
+</div>
+<div class="header-actions">
+<div class="reranker-toggle" id="rerankerToggle" role="switch" aria-checked="false" tabindex="0" title="Enable/disable Reranker for more accurate results">
+<span>Reranker</span>
+<div class="toggle-track"><div class="toggle-thumb"></div></div>
+<span class="reranker-status" id="rerankerStatus"></span>
+</div>
+<div class="model-indicator ready" id="modelIndicator" role="button" tabindex="0" aria-label="Model status">
+<span class="dot"></span>
+<span class="label" id="modelLabel">Ready</span>
+</div>
+</div>
+</header>
 
-  <div class="model-bar" id="modelBar">
-    <div class="model-info">
-      <div class="model-icon">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 6v4l3 3"/></svg>
-      </div>
-      <div>
-        <div class="model-name" id="modelName">Qwen3-VL-Embedding-8B</div>
-        <div class="model-meta" id="modelMeta">4096-dim · multimodal · click to load</div>
-      </div>
-    </div>
-    <button class="btn btn-primary" id="loadBtn" onclick="loadModel()">Load Model</button>
-  </div>
+<section class="hero">
+<h2>Search Images with <span>Natural Language</span></h2>
+<p>Upload your images, then describe what you are looking for in any language</p>
+</section>
 
-  <div class="search-section">
-    <div class="search-box">
-      <input type="text" class="search-input" id="searchInput" placeholder="Describe what you're looking for... e.g. 孩子在玩水" autocomplete="off">
-      <button class="search-btn" id="searchBtn" onclick="doSearch()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        Search
-      </button>
-    </div>
-    <div class="search-hints">
-      <div class="search-chip" onclick="setQuery('孩子在玩水')">孩子在玩水</div>
-      <div class="search-chip" onclick="setQuery('sunset over the ocean')">sunset over the ocean</div>
-      <div class="search-chip" onclick="setQuery('a dog running in the park')">a dog running in the park</div>
-      <div class="search-chip" onclick="setQuery('城市夜景')">城市夜景</div>
-      <div class="search-chip" onclick="setQuery('food on a plate')">food on a plate</div>
-    </div>
-  </div>
+<div class="search-container">
+<div class="search-wrapper">
+<input type="text" class="search-input" id="searchInput" placeholder="Describe what you are looking for…" autocomplete="off" spellcheck="false" aria-label="Search query">
+<button class="search-btn" id="searchBtn" aria-label="Search">
+<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+Search
+</button>
+</div>
+<div class="search-history" id="searchHistory" role="listbox"></div>
+<div class="search-hints">
+<span class="hint-chip" onclick="setQuery('children playing in water')">children playing in water</span>
+<span class="hint-chip" onclick="setQuery('sunset over ocean')">sunset over ocean</span>
+<span class="hint-chip" onclick="setQuery('a dog in park')">a dog in park</span>
+<span class="hint-chip" onclick="setQuery('城市夜景')">城市夜景</span>
+<span class="hint-chip" onclick="setQuery('food photography')">food photography</span>
+</div>
+</div>
 
-  <div class="main-grid">
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">Image Library <span class="count" id="imageCount">0 images</span></div>
-        <button class="btn btn-danger btn-sm" onclick="resetIndex()">Reset</button>
-      </div>
-      <div class="panel-body">
-        <div class="upload-zone" id="uploadZone">
-          <input type="file" id="fileInput" accept="image/*" multiple>
-          <div class="upload-icon"><svg><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
-          <div class="upload-text"><strong>Drop images here</strong> or click</div>
-          <div class="upload-sub">JPG, PNG, WebP — batch upload supported</div>
-        </div>
-        <div id="indexLog"></div>
-        <div class="stat-row" id="statsRow" style="display:none">
-          <div class="stat-mini"><div class="label">Images</div><div class="value" id="statTotal">0</div></div>
-          <div class="stat-mini"><div class="label">Dims</div><div class="value" id="statDim">0</div></div>
-        </div>
-        <div class="image-grid" id="libraryGrid"></div>
-      </div>
-    </div>
+<div class="main-grid">
+<div class="panel">
+<div class="panel-header">
+<span class="panel-title">Image Library <span id="libraryInfo" style="font-weight:400;color:var(--text3);font-size:12px;margin-left:8px"></span></span>
+<button class="hint-chip" onclick="resetIndex()" style="padding:6px 12px;font-size:12px">Reset</button>
+</div>
+<div class="panel-body">
+<div class="upload-zone" id="uploadZone">
+<input type="file" id="fileInput" accept="image/*" multiple aria-label="Upload images">
+<div class="upload-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+<div class="upload-text"><strong>Drop images here</strong> or click</div>
+<div class="upload-sub">JPG, PNG, WebP supported</div>
+</div>
+<div id="uploadProgress" style="display:none;margin-top:16px">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+<span id="progressText" style="font-size:13px;color:var(--text2)">Processing…</span>
+<span id="progressPercent" style="font-size:13px;color:var(--accent);font-family:var(--mono)">0%</span>
+</div>
+<div style="height:6px;background:var(--bg4);border-radius:3px;overflow:hidden"><div id="progressBar" style="height:100%;background:var(--accent);border-radius:3px;transition:width .3s;width:0%"></div></div>
+</div>
+<div class="library-grid" id="libraryGrid"></div>
+</div>
+</div>
 
-    <div>
-      <div class="results-header" id="resultsHeader" style="display:none">
-        <div class="results-info" id="resultsInfo"></div>
-      </div>
-      <div class="results-grid" id="resultsGrid">
-        <div class="empty-state">
-          <div class="empty-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </div>
-          <div class="empty-text">Upload images and search</div>
-          <div class="empty-sub">Index your images first, then describe what you're looking for</div>
-        </div>
-      </div>
-    </div>
-  </div>
+<div>
+<div class="results-header" id="resultsHeader" style="display:none">
+<div class="results-info" id="resultsInfo"></div>
+<div class="results-count" id="resultsCount"></div>
+</div>
+<div class="results-grid" id="resultsGrid">
+<div class="empty-state">
+<div class="empty-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+<div class="empty-text">Search for images</div>
+<div class="empty-sub">Upload images first, then describe what you are looking for</div>
+</div>
+</div>
+</div>
+</div>
 </div>
 
 <div class="modal-overlay" id="modal" onclick="closeModal()">
-  <div class="modal">
-    <button class="modal-close" onclick="closeModal()">x</button>
-    <img id="modalImg" src="">
-  </div>
+<button class="modal-close" onclick="closeModal()" aria-label="Close modal">×</button>
+<img id="modalImg" src="" alt="Preview">
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const API='';
-let searchDebounce;
+const MAX_RESULTS=6;
+const MAX_HISTORY=8;
+let rerankerEnabled=false;
 
 function $(s){return document.querySelector(s)}
 function $$(s){return document.querySelectorAll(s)}
@@ -246,34 +256,58 @@ function showToast(msg,type=''){
   setTimeout(()=>t.classList.remove('show'),3000);
 }
 
-function setQuery(q){$('#searchInput').value=q;doSearch()}
+function setQuery(q){
+  $('#searchInput').value=q;
+  $('#searchHistory').classList.remove('show');
+  doSearch();
+}
+
+function getHistory(){
+  try{return JSON.parse(localStorage.getItem('searchHistory')||'[]')}catch{return []}
+}
+function saveHistory(q){
+  let h=getHistory().filter(x=>x!==q);
+  h.unshift(q);
+  h=h.slice(0,MAX_HISTORY);
+  localStorage.setItem('searchHistory',JSON.stringify(h));
+}
+function renderHistory(){
+  const h=getHistory();
+  if(!h.length){$('#searchHistory').classList.remove('show');return}
+  let html=h.map(q=>`<div class="search-history-item" role="option" onclick="setQuery('${q.replace(/'/g,"\\'")}')"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>${q}</div>`).join('');
+  html+=`<div class="history-clear" onclick="clearHistory()">Clear history</div>`;
+  $('#searchHistory').innerHTML=html;
+  $('#searchHistory').classList.add('show');
+}
+function clearHistory(){localStorage.removeItem('searchHistory');$('#searchHistory').classList.remove('show')}
+
+$('#searchInput').addEventListener('focus',renderHistory);
+$('#searchInput').addEventListener('blur',()=>setTimeout(()=>$('#searchHistory').classList.remove('show'),200));
+$('#searchInput').addEventListener('input',()=>$('#searchHistory').classList.remove('show'));
 
 async function checkStatus(){
   try{
     const r=await fetch(API+'/api/status');const d=await r.json();
-    const dt=$('#deviceText'),db=$('#deviceBadge');
-    dt.textContent=d.device.toUpperCase();
-    db.className='badge '+(d.has_gpu?'badge-green':'badge-blue');
-
-    const mt=$('#modelText'),mb=$('#modelBadge');
+    const mi=$('#modelIndicator');
     if(d.model_loaded){
-      mt.textContent='Model Ready';
-      mb.className='badge badge-green';
-      $('#loadBtn').textContent='Loaded';
-      $('#loadBtn').disabled=true;
-      $('#modelMeta').textContent=`${d.embedding_dim||4096}-dim · ${d.total_images} images indexed · ready`;
+      mi.className='model-indicator ready';
+      $('#modelLabel').textContent='Ready';
     }else if(d.model_loading){
-      mt.textContent='Loading...';
-      mb.className='badge badge-orange';
-      $('#loadBtn').textContent='Loading...';
-      $('#loadBtn').disabled=true;
+      mi.className='model-indicator loading';
+      $('#modelLabel').textContent='Loading…';
     }else{
-      mt.textContent='Not Loaded';
-      mb.className='badge badge-orange';
+      mi.className='model-indicator';
+      $('#modelLabel').textContent='Click to Load';
     }
-    $('#modelName').textContent=d.model_path.split('/').pop();
-    $('#imageCount').textContent=d.total_images+' images';
-    if(d.total_images>0){$('#statsRow').style.display='flex';$('#statTotal').textContent=d.total_images;$('#statDim').textContent=d.embedding_dim||'-'}
+    rerankerEnabled=d.reranker_enabled||false;
+    const rt=$('#rerankerToggle');
+    if(rerankerEnabled){
+      rt.classList.add('active');rt.setAttribute('aria-checked','true');
+      $('#rerankerStatus').textContent=d.reranker_loading?'Loading…':d.reranker_loaded?'✓':'Off';
+    }else{
+      rt.classList.remove('active');rt.setAttribute('aria-checked','false');
+      $('#rerankerStatus').textContent='';
+    }
     loadLibrary();
   }catch(e){}
 }
@@ -281,24 +315,17 @@ async function checkStatus(){
 async function loadModel(){
   try{
     const r=await fetch(API+'/api/load_model',{method:'POST'});const d=await r.json();
-    if(d.status==='loading_started'){
-      showToast('Model loading... this may take a few minutes on first run');
-      pollModelLoad();
-    }else if(d.status==='already_loaded'){
-      showToast('Model already loaded','success');
-    }
-  }catch(e){showToast('Failed: '+e.message,'error')}
+    if(d.status==='loading_started'){showToast('Model loading… this may take a few minutes');pollModelLoad();}
+    else if(d.status==='already_loaded'){showToast('Model already loaded','success');}
+  }catch(e){showToast('Failed to load model','error');}
 }
 
 function pollModelLoad(){
   const iv=setInterval(async()=>{
     try{
       const r=await fetch(API+'/api/status');const d=await r.json();
-      if(d.model_loaded){
-        clearInterval(iv);showToast('Model loaded successfully','success');checkStatus();
-      }else if(!d.model_loading){
-        clearInterval(iv);showToast('Model failed to load','error');
-      }
+      if(d.model_loaded){clearInterval(iv);showToast('Model loaded','success');checkStatus();}
+      else if(!d.model_loading){clearInterval(iv);showToast('Model failed to load','error');}
     }catch(e){clearInterval(iv)}
   },3000);
 }
@@ -306,19 +333,18 @@ function pollModelLoad(){
 async function loadLibrary(){
   try{
     const r=await fetch(API+'/api/stats');const d=await r.json();
-    if(d.total_images>0){
+    const count=d.total_images||0;
+    const dim=d.embedding_dim||'—';
+    $('#libraryInfo').textContent=count>0?`${count} images · ${dim}d`:'';
+    if(count>0&&d.metadata){
       let html='';
-      if(d.metadata&&d.metadata.length){
-        d.metadata.forEach(m=>{
-          const thumb=m.thumbnail||'/images/uploaded/'+m.filename;
-          html+=`<div class="image-thumb" onclick="openModal('${m.original_path||thumb}')"><img src="${thumb}" loading="lazy"></div>`;
-        });
-      }else{
-        for(let i=0;i<d.total_images;i++){
-          html+=`<div class="image-thumb"><div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text4)">${i+1}</div></div>`;
-        }
-      }
+      d.metadata.slice(0,9).forEach(m=>{
+        const src=m.thumbnail||'/images/uploaded/'+m.filename;
+        html+=`<div class="library-item" onclick="openModal('${src}')"><img src="${src}" alt="${m.original_name||m.filename}" loading="lazy"></div>`;
+      });
       $('#libraryGrid').innerHTML=html;
+    }else{
+      $('#libraryGrid').innerHTML='<div style="text-align:center;color:var(--text4);padding:20px;font-size:13px">No images indexed</div>';
     }
   }catch(e){}
 }
@@ -329,47 +355,75 @@ uz.addEventListener('dragleave',()=>uz.classList.remove('dragover'));
 uz.addEventListener('drop',e=>{e.preventDefault();uz.classList.remove('dragover');if(e.dataTransfer.files.length)uploadFiles(e.dataTransfer.files)});
 fi.addEventListener('change',()=>{if(fi.files.length)uploadFiles(fi.files)});
 
+let progressInterval=null;
+
 async function uploadFiles(files){
   const fd=new FormData();let count=0;
-  for(const f of files){
-    if(f.type.startsWith('image/')){fd.append('files',f);count++}
-  }
+  for(const f of files){if(f.type.startsWith('image/')){fd.append('files',f);count++}}
   if(!count){showToast('No images selected','error');return}
-
-  $('#indexLog').innerHTML=`<div class="loading"><div class="spinner"></div><span>Embedding ${count} image(s)...</span></div>`;
-
+  $('#uploadProgress').style.display='block';
+  $('#progressBar').style.width='0%';
+  $('#progressPercent').textContent='0%';
+  $('#progressText').textContent='Uploading…';
   try{
     const r=await fetch(API+'/api/index',{method:'POST',body:fd});
     const d=await r.json();
-    if(d.error){showToast(d.error,'error');$('#indexLog').innerHTML='';return}
-
-    const total=d.total_indexed;
-    let logHtml=`<div class="log-line"><span class="ok">✓</span> Indexed ${total} image(s)</div>`;
-    d.results.forEach(res=>{
-      if(res.original_name){
-        logHtml+=`<div class="log-line"><span class="ok">✓</span> ${res.original_name}</div>`;
-      }else{
-        logHtml+=`<div class="log-line">${res.name}: ${res.reason}</div>`;
-      }
-    });
-    $('#indexLog').innerHTML=logHtml;
-    showToast(`${total} image(s) indexed`,'success');
-    checkStatus();
-  }catch(e){showToast('Upload failed: '+e.message,'error');$('#indexLog').innerHTML=''}
+    if(d.error){showToast(d.error,'error');$('#uploadProgress').style.display='none';return}
+    if(d.status==='processing'){
+      progressInterval=setInterval(async()=>{
+        try{
+          const pr=await fetch(API+'/api/index/progress');
+          const prog=await pr.json();
+          if(prog.progress){
+            const pct=Math.round((prog.progress.current/prog.progress.total)*100);
+            $('#progressBar').style.width=pct+'%';
+            $('#progressPercent').textContent=pct+'%';
+            $('#progressText').textContent=`Embedding ${prog.progress.current}/${prog.progress.total}…`;
+          }
+          if(prog.results){
+            clearInterval(progressInterval);
+            progressInterval=null;
+            const total=prog.total_indexed;
+            $('#progressText').textContent=`Indexed ${total} image(s)`;
+            $('#progressBar').style.width='100%';
+            $('#progressPercent').textContent='100%';
+            setTimeout(()=>{$('#uploadProgress').style.display='none'},1000);
+            showToast(`${total} image(s) indexed`,'success');
+            checkStatus();
+          }
+          if(prog.error){
+            clearInterval(progressInterval);
+            progressInterval=null;
+            showToast('Embedding failed: '+prog.error,'error');
+            $('#uploadProgress').style.display='none';
+          }
+        }catch(e){console.error(e)}
+      },200);
+    }else{
+      const total=d.total_indexed||0;
+      $('#progressText').textContent=`Indexed ${total} image(s)`;
+      $('#progressBar').style.width='100%';
+      setTimeout(()=>{$('#uploadProgress').style.display='none'},1000);
+      showToast(`${total} image(s) indexed`,'success');
+      checkStatus();
+    }
+  }catch(e){if(progressInterval)clearInterval(progressInterval);showToast('Upload failed: '+e.message,'error');$('#uploadProgress').style.display='none'}
 }
 
 async function doSearch(){
   const q=$('#searchInput').value.trim();if(!q)return;
+  saveHistory(q);
   $('#resultsHeader').style.display='flex';
-  $('#resultsInfo').innerHTML=`Searching "<strong>${q}</strong>"...`;
-  $('#resultsGrid').innerHTML=`<div class="loading"><div class="spinner"></div><span>Computing embeddings...</span></div>`;
-
+  $('#resultsInfo').innerHTML=`Searching "<strong>${q}</strong>"…`;
+  $('#resultsGrid').innerHTML=`<div class="loading"><div class="spinner"></div><span>Computing embeddings…</span></div>`;
   try{
-    const r=await fetch(API+'/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,top_k:10})});
+    const r=await fetch(API+'/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,top_k:MAX_RESULTS,use_reranker:rerankerEnabled})});
     const d=await r.json();
     if(d.error){showToast(d.error,'error');renderEmpty();return}
-
-    $('#resultsInfo').innerHTML=`Found <strong>${d.results.length}</strong> results for "<strong>${q}</strong>"`;
+    const timeStr=d.time_ms?`<span class="time">${d.time_ms}ms</span>`:'';
+    const rerankerTag=d.reranker_used?' <span style="color:var(--blue);font-size:11px">reranked</span>':'';
+    $('#resultsInfo').innerHTML=`Results for "<strong>${q}</strong>"${timeStr}${rerankerTag}`;
+    $('#resultsCount').textContent=`${d.results.length} of ${d.total_searched||d.results.length}`;
     renderResults(d.results);
   }catch(e){showToast('Search failed: '+e.message,'error');renderEmpty()}
 }
@@ -378,16 +432,15 @@ function renderResults(results){
   if(!results.length){renderEmpty();return}
   let html='';
   results.forEach((r,i)=>{
-    const score=(r.score*100).toFixed(1);
-    const color=r.score>.8?'var(--green)':r.score>.5?'var(--accent)':'var(--blue)';
-    const rankClass=i===0?'rank-1':i===1?'rank-2':i===2?'rank-3':'rank-n';
-    const imgSrc=r.original_path||r.thumbnail||'/images/uploaded/'+r.filename;
-    html+=`<div class="result-card fade-in" style="animation-delay:${i*50}ms" onclick="openModal('${imgSrc}')">
-      <img class="card-img" src="${r.thumbnail||imgSrc}" loading="lazy">
-      <div class="card-body">
-        <div class="card-name">${r.original_name||r.filename||r.id}</div>
-        <div class="card-footer">
-          <div class="card-score" style="color:${color}">${score}%</div>
+    const score=(r.score*100).toFixed(0);
+    const color=score>80?'var(--green)':score>50?'var(--accent)':'var(--blue)';
+    const imgSrc=r.thumbnail||r.original_path||'/images/uploaded/'+r.filename;
+    html+=`<div class="result-card fade-in" style="animation-delay:${i*60}ms" onclick="openModal('${imgSrc}')">
+      <img class="result-img" src="${imgSrc}" alt="${r.original_name||r.filename}" loading="lazy">
+      <div class="result-body">
+        <div class="result-name">${r.original_name||r.filename||r.id}</div>
+        <div class="result-footer">
+          <div class="result-score" style="color:${color}">${score}%</div>
           <div class="score-bar"><div class="score-fill" style="width:${score}%;background:${color}"></div></div>
         </div>
       </div>
@@ -398,28 +451,46 @@ function renderResults(results){
 
 function renderEmpty(){
   $('#resultsGrid').innerHTML=`<div class="empty-state">
-    <div class="empty-icon">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    </div>
+    <div class="empty-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
     <div class="empty-text">No results found</div>
     <div class="empty-sub">Try a different description</div>
   </div>`;
 }
 
-function openModal(src){
-  $('#modalImg').src=src;$('#modal').classList.add('show');
-}
+function openModal(src){$('#modalImg').src=src;$('#modal').classList.add('show');}
 function closeModal(){$('#modal').classList.remove('show')}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 
+$('#searchBtn').addEventListener('click',doSearch);
 $('#searchInput').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch()});
+
+$('#modelIndicator').addEventListener('click',()=>{
+  if(!$('#modelIndicator').classList.contains('ready')&&!$('#modelIndicator').classList.contains('loading')){
+    loadModel();
+  }
+});
+$('#modelIndicator').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#modelIndicator').click()}});
+
+$('#rerankerToggle').addEventListener('click',async()=>{
+  const rt=$('#rerankerToggle');
+  const newState=!rerankerEnabled;
+  try{
+    const r=await fetch(API+'/api/reranker/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:newState})});
+    const d=await r.json();
+    if(d.error){showToast(d.error,'error');return}
+    checkStatus();
+    showToast(newState?'Reranker enabled':'Reranker disabled','success');
+  }catch(e){showToast('Failed to toggle reranker','error')}
+});
+$('#rerankerToggle').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#rerankerToggle').click()}});
 
 async function resetIndex(){
   if(!confirm('Reset the entire image index?'))return;
   await fetch(API+'/api/reset',{method:'POST'});
   showToast('Index reset','success');
-  $('#libraryGrid').innerHTML='';$('#resultsGrid').innerHTML='';
-  $('#resultsHeader').style.display='none';$('#indexLog').innerHTML='';
+  $('#libraryGrid').innerHTML='';
+  $('#resultsHeader').style.display='none';
+  $('#resultsGrid').innerHTML='';
   checkStatus();
 }
 

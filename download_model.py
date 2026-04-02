@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
-"""Download Qwen3-VL-Embedding model from ModelScope or HuggingFace."""
+"""Download Qwen3-VL-Embedding or Qwen3-VL-Reranker model from ModelScope or HuggingFace."""
 
 import os
 import sys
 import argparse
+
+
+EMBEDDING_MODELS = {
+    "8b": "Qwen/Qwen3-VL-Embedding-8B",
+    "2b": "Qwen/Qwen3-VL-Embedding-2B",
+}
+
+RERANKER_MODELS = {
+    "2b": "Qwen/Qwen3-VL-Reranker-2B",
+    "8b": "Qwen/Qwen3-VL-Reranker-8B",
+}
 
 
 def download_model(
@@ -12,7 +23,7 @@ def download_model(
     if save_dir:
         os.environ["QWEN3VL_MODEL_PATH"] = save_dir
     else:
-        save_dir = model_name
+        save_dir = model_name.replace("/", "_")
 
     if source == "modelscope":
         _download_modelscope(model_name, save_dir)
@@ -62,7 +73,7 @@ def _download_huggingface(model_name, save_dir):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download Qwen3-VL-Embedding model")
+    parser = argparse.ArgumentParser(description="Download Qwen3-VL model")
     parser.add_argument(
         "--source",
         choices=["modelscope", "huggingface"],
@@ -70,15 +81,16 @@ if __name__ == "__main__":
         help="Download source (default: modelscope, faster in China)",
     )
     parser.add_argument(
-        "--model",
-        default="Qwen/Qwen3-VL-Embedding-8B",
-        help="Model name (default: Qwen/Qwen3-VL-Embedding-8B)",
+        "--type",
+        choices=["embedding", "reranker"],
+        default="embedding",
+        help="Model type (default: embedding)",
     )
     parser.add_argument(
         "--size",
-        choices=["8b", "2b"],
+        choices=["2b", "8b"],
         default="8b",
-        help="Model size (default: 8b, use 2b for less VRAM)",
+        help="Model size (default: 8b for embedding, 2b for reranker)",
     )
     parser.add_argument(
         "--save-dir",
@@ -87,9 +99,15 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    model_map = {
-        "8b": "Qwen/Qwen3-VL-Embedding-8B",
-        "2b": "Qwen/Qwen3-VL-Embedding-2B",
-    }
+    if args.type == "embedding":
+        model_map = EMBEDDING_MODELS
+    else:
+        model_map = RERANKER_MODELS
+
+    if args.size not in model_map:
+        print(f"Error: size '{args.size}' not available for type '{args.type}'")
+        print(f"Available sizes for {args.type}: {list(model_map.keys())}")
+        sys.exit(1)
+
     model_name = model_map[args.size]
     download_model(source=args.source, model_name=model_name, save_dir=args.save_dir)
