@@ -14,8 +14,12 @@
 
 ### 1. 安装依赖
 
+**注意：需要 Python 3.10（faiss-gpu 不支持 Python 3.12+）**
+
 ```bash
-pip install -r requirements.txt
+uv venv .venv --python 3.10
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
 GPU 环境建议参照 [PyTorch 官网](https://pytorch.org/) 安装对应 CUDA 版本的 torch。
@@ -24,7 +28,10 @@ GPU 环境建议参照 [PyTorch 官网](https://pytorch.org/) 安装对应 CUDA 
 
 **方式 A：从 ModelScope 下载（推荐国内用户）**
 
+建议配置阿里云镜像加速：
 ```bash
+export MODELSCOPE_ENDPOINT='https://mirror.alibaba.com/modelscope'
+export MODELSCOPE_CACHE=./models
 python3 download_model.py --source modelscope --size 8b
 ```
 

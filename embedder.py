@@ -24,7 +24,7 @@ _instruction = "Retrieve relevant images based on the user's description."
 HNSW_M = 32
 HNSW_EF_CONSTRUCTION = 200
 HNSW_EF_SEARCH = 128
-USE_SQ = os.environ.get("FAISS_USE_SQ", "1") == "1"
+USE_SQ = False
 
 MODEL_MAP = {
     "8b": "Qwen/Qwen3-VL-Embedding-8B",
@@ -140,13 +140,13 @@ _load_index()
 def embed_text(text: str) -> np.ndarray:
     model = get_model()
     result = model.process([{"text": text, "instruction": _instruction}])
-    return result.cpu().float().numpy().flatten()
+    return result.cpu().to(torch.float32).numpy().flatten()
 
 
 def embed_image(image_path: str) -> np.ndarray:
     model = get_model()
     result = model.process([{"image": image_path, "instruction": _instruction}])
-    return result.cpu().float().numpy().flatten()
+    return result.cpu().to(torch.float32).numpy().flatten()
 
 
 def add_image(image_path: str, filename: str) -> dict:
@@ -181,7 +181,7 @@ def add_image(image_path: str, filename: str) -> dict:
 def add_image_batch(image_paths: list) -> list:
     model = get_model()
     inputs = [{"image": p, "instruction": _instruction} for p in image_paths]
-    embeddings = model.process(inputs).cpu().numpy().astype("float32")
+    embeddings = model.process(inputs).cpu().to(torch.float32).numpy()
 
     results = []
     for i, path in enumerate(image_paths):

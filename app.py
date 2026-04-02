@@ -153,7 +153,7 @@ def switch_model_endpoint():
 
 @app.route("/api/index", methods=["POST"])
 def index_images():
-    global MODEL_LOADED
+    global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE
     if "files" not in request.files:
         return jsonify({"error": "No files provided"}), 400
 
@@ -217,6 +217,7 @@ def index_images():
 
 @app.route("/api/search", methods=["POST"])
 def search_images():
+    global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE
     data = request.get_json()
     query = data.get("query", "").strip()
     top_k = data.get("top_k", 5)
