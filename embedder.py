@@ -44,7 +44,7 @@ _reranker_enabled = os.environ.get("QWEN3VL_RERANKER_ENABLED", "0") == "1"
 _reranker_loading = False
 _faiss_index = None
 _metadata = []
-_current_model_size = os.environ.get("QWEN3VL_MODEL_SIZE", "8b")
+_current_model_size = os.environ.get("QWEN3VL_MODEL_SIZE", "2b")
 
 
 def _model_path():
@@ -298,6 +298,20 @@ def get_reranker():
         )
         print("Reranker model loaded.")
     return _reranker_model
+
+
+def preload_reranker():
+    global _reranker_loading
+    _reranker_loading = True
+    try:
+        get_reranker()
+        print("Reranker preloaded successfully.")
+    except Exception as e:
+        print(f"Reranker preload failed: {e}")
+        global _reranker_enabled
+        _reranker_enabled = False
+    finally:
+        _reranker_loading = False
 
 
 def set_reranker_enabled(enabled: bool) -> dict:

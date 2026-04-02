@@ -303,7 +303,9 @@ async function checkStatus(){
     const rt=$('#rerankerToggle');
     if(rerankerEnabled){
       rt.classList.add('active');rt.setAttribute('aria-checked','true');
-      $('#rerankerStatus').textContent=d.reranker_loading?'Loading…':d.reranker_loaded?'✓':'Off';
+      if(d.reranker_loading){$('#rerankerStatus').textContent='Loading…'}
+      else if(d.reranker_loaded){$('#rerankerStatus').textContent='✓'}
+      else{$('#rerankerStatus').textContent=''}
     }else{
       rt.classList.remove('active');rt.setAttribute('aria-checked','false');
       $('#rerankerStatus').textContent='';
@@ -364,7 +366,7 @@ async function uploadFiles(files){
   $('#uploadProgress').style.display='block';
   $('#progressBar').style.width='0%';
   $('#progressPercent').textContent='0%';
-  $('#progressText').textContent='Uploading…';
+  $('#progressText').textContent=`Uploading ${count} image(s)…`;
   try{
     const r=await fetch(API+'/api/index',{method:'POST',body:fd});
     const d=await r.json();
@@ -373,42 +375,46 @@ async function uploadFiles(files){
       progressInterval=setInterval(async()=>{
         try{
           const pr=await fetch(API+'/api/index/progress');
-          const prog=await pr.json();
-          if(prog.progress){
-            const pct=Math.round((prog.progress.current/prog.progress.total)*100);
+          const p=await pr.json();
+          if(p.total>0){
+            const pct=Math.round((p.current/p.total)*100);
             $('#progressBar').style.width=pct+'%';
             $('#progressPercent').textContent=pct+'%';
-            $('#progressText').textContent=`Embedding ${prog.progress.current}/${prog.progress.total}…`;
+            $('#progressText').textContent=`Embedding ${p.current}/${p.total}…`;
           }
-          if(prog.results){
-            clearInterval(progressInterval);
-            progressInterval=null;
-            const total=prog.total_indexed;
+          if(p.done&&p.error){
+            clearInterval(progressInterval);progressInterval=null;
+            showToast('Embedding failed: '+p.error,'error');
+            $('#uploadProgress').style.display='none';
+          }
+          if(p.done&&!p.error){
+            clearInterval(progressInterval);progressInterval=null;
+            const total=p.total_indexed||p.total||0;
             $('#progressText').textContent=`Indexed ${total} image(s)`;
             $('#progressBar').style.width='100%';
             $('#progressPercent').textContent='100%';
-            setTimeout(()=>{$('#uploadProgress').style.display='none'},1000);
+            setTimeout(()=>{$('#uploadProgress').style.display='none'},1500);
             showToast(`${total} image(s) indexed`,'success');
             checkStatus();
           }
-          if(prog.error){
-            clearInterval(progressInterval);
-            progressInterval=null;
-            showToast('Embedding failed: '+prog.error,'error');
-            $('#uploadProgress').style.display='none';
-          }
         }catch(e){console.error(e)}
-      },200);
+      },500);
     }else{
       const total=d.total_indexed||0;
       $('#progressText').textContent=`Indexed ${total} image(s)`;
       $('#progressBar').style.width='100%';
-      setTimeout(()=>{$('#uploadProgress').style.display='none'},1000);
+      $('#progressPercent').textContent='100%';
+      setTimeout(()=>{$('#uploadProgress').style.display='none'},1500);
       showToast(`${total} image(s) indexed`,'success');
       checkStatus();
     }
-  }catch(e){if(progressInterval)clearInterval(progressInterval);showToast('Upload failed: '+e.message,'error');$('#uploadProgress').style.display='none'}
+  }catch(e){
+    if(progressInterval){clearInterval(progressInterval);progressInterval=null}
+    showToast('Upload failed: '+e.message,'error');
+    $('#uploadProgress').style.display='none';
+  }
 }
+
 
 async function doSearch(){
   const q=$('#searchInput').value.trim();if(!q)return;
@@ -474,13 +480,38 @@ $('#modelIndicator').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===
 $('#rerankerToggle').addEventListener('click',async()=>{
   const rt=$('#rerankerToggle');
   const newState=!rerankerEnabled;
+  rt.classList.toggle('active',newState);
+  rt.setAttribute('aria-checked',String(newState));
+  $('#rerankerStatus').textContent=newState?'Loading…':'';
   try{
     const r=await fetch(API+'/api/reranker/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:newState})});
     const d=await r.json();
-    if(d.error){showToast(d.error,'error');return}
-    checkStatus();
-    showToast(newState?'Reranker enabled':'Reranker disabled','success');
-  }catch(e){showToast('Failed to toggle reranker','error')}
+    if(d.error){showToast(d.error,'error');rt.classList.toggle('active',!newState);$('#rerankerStatus').textContent='';return}
+    if(d.reranker_loading){
+      showToast('Reranker model loading… this may take a few minutes');
+      const iv=setInterval(async()=>{
+        try{
+          const sr=await fetch(API+'/api/reranker/status');
+          const sd=await sr.json();
+          if(sd.reranker_loaded){
+            clearInterval(iv);
+            $('#rerankerStatus').textContent='✓';
+            showToast('Reranker loaded and ready','success');
+          }else if(!sd.reranker_loading&&!sd.reranker_enabled){
+            clearInterval(iv);
+            rt.classList.remove('active');
+            $('#rerankerStatus').textContent='';
+            showToast('Reranker failed to load','error');
+          }
+        }catch(e){clearInterval(iv)}
+      },2000);
+    }else if(d.reranker_loaded){
+      $('#rerankerStatus').textContent='✓';
+      showToast(newState?'Reranker enabled':'Reranker disabled','success');
+    }else{
+      $('#rerankerStatus').textContent='';
+    }
+  }catch(e){showToast('Failed to toggle reranker','error');rt.classList.toggle('active',!newState);$('#rerankerStatus').textContent=''}
 });
 $('#rerankerToggle').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#rerankerToggle').click()}});
 

@@ -17,7 +17,7 @@ from flask import (
 )
 
 app = Flask(__name__, static_folder="static")
-app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
 
 BASE_DIR = Path(__file__).parent
 UPLOAD_DIR = BASE_DIR / "images" / "uploaded"
@@ -30,10 +30,8 @@ MODEL_LOADED = False
 MODEL_LOADING = False
 SEARCH_ENGINE = None
 
-INDEX_PROGRESS = {"current": 0, "total": 0, "done": False}
-INDEX_PROGRESS_LOCK = threading.Lock()
-INDEX_TASK_RESULT = {"results": None, "error": None}
-INDEX_TASK_LOCK = threading.Lock()
+_index_progress = {"current": 0, "total": 0, "done": False, "error": None}
+_index_lock = threading.Lock()
 
 
 def get_engine():
@@ -169,7 +167,7 @@ def switch_model_endpoint():
 
 @app.route("/api/index", methods=["POST"])
 def index_images():
-    global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE, INDEX_PROGRESS, INDEX_TASK_RESULT
+    global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE
     if "files" not in request.files:
         return jsonify({"error": "No files provided"}), 400
 
@@ -184,11 +182,11 @@ def index_images():
         except Exception as e:
             return jsonify({"error": f"Model not loaded: {e}"}), 500
 
-    results = []
     saved_paths = []
+    skipped = []
     for f in files:
         if not f.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp")):
-            results.append(
+            skipped.append(
                 {
                     "name": f.filename,
                     "status": "skipped",
@@ -196,92 +194,59 @@ def index_images():
                 }
             )
             continue
-
         ext = Path(f.filename).suffix
         file_id = f"{uuid.uuid4().hex[:8]}{ext}"
         filepath = UPLOAD_DIR / file_id
         f.save(str(filepath))
         saved_paths.append((str(filepath), f.filename))
 
-    if saved_paths:
+    if not saved_paths:
+        return jsonify({"results": skipped, "total_indexed": 0})
+
+    global _index_progress
+    with _index_lock:
+        _index_progress = {
+            "current": 0,
+            "total": len(saved_paths),
+            "done": False,
+            "error": None,
+        }
+
+    def _background_embed():
+        global _index_progress
         try:
             from embedder import add_image_batch
 
-            with INDEX_PROGRESS_LOCK:
-                INDEX_PROGRESS = {
-                    "current": 0,
-                    "total": len(saved_paths),
-                    "done": False,
-                }
-            with INDEX_TASK_LOCK:
-                INDEX_TASK_RESULT = {"results": None, "error": None}
+            def _on_progress(current, total):
+                with _index_lock:
+                    _index_progress["current"] = current
+                    _index_progress["total"] = total
 
-            def progress_callback(current, total):
-                with INDEX_PROGRESS_LOCK:
-                    INDEX_PROGRESS["current"] = current
-                    INDEX_PROGRESS["done"] = current >= total
-
-            def background_task():
-                try:
-                    paths = [p[0] for p in saved_paths]
-                    batch_results = add_image_batch(
-                        paths, progress_callback=progress_callback
-                    )
-                    task_results = []
-                    for br, (_, orig_name) in zip(batch_results, saved_paths):
-                        br["original_name"] = orig_name
-                        task_results.append(br)
-                    with INDEX_TASK_LOCK:
-                        INDEX_TASK_RESULT["results"] = task_results
-                    with INDEX_PROGRESS_LOCK:
-                        INDEX_PROGRESS["done"] = True
-                except Exception as e:
-                    with INDEX_TASK_LOCK:
-                        INDEX_TASK_RESULT["error"] = str(e)
-                    with INDEX_PROGRESS_LOCK:
-                        INDEX_PROGRESS["done"] = True
-
-            t = threading.Thread(target=background_task, daemon=True)
-            t.start()
-            return jsonify({"status": "processing", "task_id": "index"})
+            paths = [p[0] for p in saved_paths]
+            batch_results = add_image_batch(
+                paths, batch_size=4, progress_callback=_on_progress
+            )
+            for br, (_, orig_name) in zip(batch_results, saved_paths):
+                br["original_name"] = orig_name
+            with _index_lock:
+                _index_progress["results"] = batch_results + skipped
+                _index_progress["total_indexed"] = len(batch_results)
+                _index_progress["done"] = True
         except Exception as e:
-            return jsonify({"error": f"Embedding failed: {e}"}), 500
+            with _index_lock:
+                _index_progress["error"] = str(e)
+                _index_progress["done"] = True
 
-    return jsonify(
-        {
-            "results": results,
-            "total_indexed": len(
-                [
-                    r
-                    for r in results
-                    if "status" not in r or r.get("status") != "skipped"
-                ]
-            ),
-        }
-    )
+    t = threading.Thread(target=_background_embed, daemon=True)
+    t.start()
+    return jsonify({"status": "processing", "total": len(saved_paths)})
 
 
 @app.route("/api/index/progress")
 def index_progress():
-    global INDEX_PROGRESS, INDEX_TASK_RESULT
-    with INDEX_PROGRESS_LOCK:
-        prog = dict(INDEX_PROGRESS)
-    with INDEX_TASK_LOCK:
-        task_result = (
-            dict(INDEX_TASK_RESULT)
-            if INDEX_TASK_RESULT["results"] is not None
-            else None
-        )
-        task_error = INDEX_TASK_RESULT["error"]
-    result = {"progress": prog}
-    if task_result is not None:
-        result["results"] = task_result
-        result["total_indexed"] = len(
-            [r for r in task_result if r.get("status") != "skipped"]
-        )
-    if task_error:
-        result["error"] = task_error
-    return jsonify(result)
+    with _index_lock:
+        prog = dict(_index_progress)
+    return jsonify(prog)
 
 
 @app.route("/api/search", methods=["POST"])
@@ -333,13 +298,45 @@ def search_images():
 
 @app.route("/api/reranker/toggle", methods=["POST"])
 def toggle_reranker():
+    global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE
     data = request.get_json() or {}
     enabled = data.get("enabled", False)
     try:
-        from embedder import set_reranker_enabled
+        from embedder import set_reranker_enabled, get_reranker_status
 
-        result = set_reranker_enabled(enabled)
-        return jsonify(result)
+        set_reranker_enabled(enabled)
+        status = get_reranker_status()
+
+        if enabled and not status["reranker_loaded"] and not status["reranker_loading"]:
+            if not MODEL_LOADED and SEARCH_ENGINE is None:
+                try:
+                    get_engine()
+                    MODEL_LOADED = True
+                except Exception as e:
+                    return jsonify({"error": f"Embedding model not loaded: {e}"}), 500
+
+            def _load_reranker():
+                from embedder import preload_reranker
+
+                preload_reranker()
+
+            t = threading.Thread(target=_load_reranker, daemon=True)
+            t.start()
+            return jsonify(
+                {
+                    "reranker_enabled": True,
+                    "reranker_loading": True,
+                    "reranker_loaded": False,
+                }
+            )
+
+        return jsonify(
+            {
+                "reranker_enabled": enabled,
+                "reranker_loading": status["reranker_loading"],
+                "reranker_loaded": status["reranker_loaded"],
+            }
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -396,4 +393,4 @@ if __name__ == "__main__":
     print(f"  Model: {model_path}")
     print(f"  URL: http://localhost:{port}")
     print(f"{'=' * 60}\n")
-    app.run(debug=False, host="0.0.0.0", port=port)
+    app.run(debug=False, host="0.0.0.0", port=port, threaded=True)
