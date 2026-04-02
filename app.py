@@ -49,7 +49,6 @@ def index():
 @app.route("/api/status")
 def status():
     has_index = (DATA_DIR / "metadata.json").exists()
-    dim = 0
     total = 0
     if has_index:
         try:
@@ -57,15 +56,18 @@ def status():
             total = len(meta)
         except:
             pass
-        try:
-            import numpy as np
-
-            emb = np.load(str(DATA_DIR / "embeddings.npy"))
-            dim = emb.shape[1] if len(emb) > 0 else 0
-        except:
-            pass
 
     import torch
+    import faiss
+
+    dim = 0
+    faiss_file = DATA_DIR / "faiss.index"
+    if faiss_file.exists():
+        try:
+            idx = faiss.read_index(str(faiss_file))
+            dim = idx.d
+        except:
+            pass
 
     return jsonify(
         {

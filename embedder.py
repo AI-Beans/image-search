@@ -2,8 +2,7 @@ from qwen3_vl_embedding import Qwen3VLEmbedder
 import numpy as np
 import os
 import json
-import base64
-from io import BytesIO
+import faiss
 from datetime import datetime
 from pathlib import Path
 from PIL import Image
@@ -13,18 +12,22 @@ import torch
 DATA_DIR = Path(__file__).parent / "data"
 IMAGES_DIR = Path(__file__).parent / "images" / "uploaded"
 THUMBS_DIR = Path(__file__).parent / "static" / "thumbnails"
-INDEX_FILE = DATA_DIR / "index.json"
 
 for d in [DATA_DIR, IMAGES_DIR, THUMBS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
-EMBEDDINGS_FILE = DATA_DIR / "embeddings.npy"
+FAISS_INDEX_FILE = DATA_DIR / "faiss.index"
 METADATA_FILE = DATA_DIR / "metadata.json"
 
 _instruction = "Retrieve relevant images based on the user's description."
 
+HNSW_M = 32
+HNSW_EF_CONSTRUCTION = 200
+HNSW_EF_SEARCH = 128
+USE_SQ = os.environ.get("FAISS_USE_SQ", "1") == "1"
+
 _model = None
-_embeddings = None
+_faiss_index = None
 _metadata = []
 
 
@@ -46,20 +49,42 @@ def get_model():
     return _model
 
 
+def _create_index(dim):
+    index = faiss.IndexHNSWFlat(dim, HNSW_M, faiss.METRIC_INNER_PRODUCT)
+    index.hnsw.efConstruction = HNSW_EF_CONSTRUCTION
+    index.hnsw.efSearch = HNSW_EF_SEARCH
+    if USE_SQ:
+        sq = faiss.IndexScalarQuantizer(
+            dim, faiss.ScalarQuantizer_QT_fp16, faiss.METRIC_INNER_PRODUCT
+        )
+        index = faiss.IndexHNSWSQ(
+            dim, faiss.ScalarQuantizer_QT_fp16, HNSW_M, faiss.METRIC_INNER_PRODUCT
+        )
+        index.hnsw.efConstruction = HNSW_EF_CONSTRUCTION
+        index.hnsw.efSearch = HNSW_EF_SEARCH
+    return index
+
+
+def _ensure_index(dim):
+    global _faiss_index
+    if _faiss_index is None or _faiss_index.d != dim:
+        _faiss_index = _create_index(dim)
+
+
 def _load_index():
-    global _embeddings, _metadata
+    global _faiss_index, _metadata
     if METADATA_FILE.exists():
         with open(METADATA_FILE, "r") as f:
             _metadata = json.load(f)
-    if EMBEDDINGS_FILE.exists():
-        _embeddings = np.load(str(EMBEDDINGS_FILE))
-    else:
-        _embeddings = np.empty((0, 0))
+    if FAISS_INDEX_FILE.exists():
+        _faiss_index = faiss.read_index(str(FAISS_INDEX_FILE))
+        if hasattr(_faiss_index, "hnsw"):
+            _faiss_index.hnsw.efSearch = HNSW_EF_SEARCH
 
 
 def _save_index():
-    if _embeddings is not None and len(_embeddings) > 0:
-        np.save(str(EMBEDDINGS_FILE), _embeddings)
+    if _faiss_index is not None and _faiss_index.ntotal > 0:
+        faiss.write_index(_faiss_index, str(FAISS_INDEX_FILE))
     with open(METADATA_FILE, "w") as f:
         json.dump(_metadata, f, ensure_ascii=False, indent=2)
 
@@ -80,7 +105,7 @@ def embed_image(image_path: str) -> np.ndarray:
 
 
 def add_image(image_path: str, filename: str) -> dict:
-    global _embeddings, _metadata
+    global _faiss_index, _metadata
 
     emb = embed_image(image_path)
 
@@ -99,10 +124,8 @@ def add_image(image_path: str, filename: str) -> dict:
         "indexed_at": datetime.now().isoformat(),
     }
 
-    if _embeddings is not None and len(_embeddings) > 0:
-        _embeddings = np.vstack([_embeddings, emb.reshape(1, -1)])
-    else:
-        _embeddings = emb.reshape(1, -1)
+    _ensure_index(emb.shape[0])
+    _faiss_index.add(emb.reshape(1, -1).astype("float32"))
 
     _metadata.append(entry)
     _save_index()
@@ -113,10 +136,9 @@ def add_image(image_path: str, filename: str) -> dict:
 def add_image_batch(image_paths: list) -> list:
     model = get_model()
     inputs = [{"image": p, "instruction": _instruction} for p in image_paths]
-    embeddings = model.process(inputs).cpu().numpy()
+    embeddings = model.process(inputs).cpu().numpy().astype("float32")
 
     results = []
-    new_embs = []
     for i, path in enumerate(image_paths):
         filename = Path(path).name
         img = Image.open(path)
@@ -133,40 +155,30 @@ def add_image_batch(image_paths: list) -> list:
             "indexed_at": datetime.now().isoformat(),
         }
         _metadata.append(entry)
-        new_embs.append(embeddings[i])
         results.append(entry)
 
-    global _embeddings
-    if _embeddings is not None and len(_embeddings) > 0:
-        _embeddings = np.vstack([_embeddings] + [e.reshape(1, -1) for e in new_embs])
-    else:
-        _embeddings = np.vstack([e.reshape(1, -1) for e in new_embs])
+    global _faiss_index
+    _ensure_index(embeddings.shape[1])
+    _faiss_index.add(embeddings)
 
     _save_index()
     return results
 
 
 def search(query: str, top_k: int = 5) -> list:
-    global _embeddings, _metadata
-
-    if _embeddings is None or len(_embeddings) == 0:
+    if _faiss_index is None or _faiss_index.ntotal == 0:
         return []
 
-    q_emb = embed_text(query)
-
-    norms = np.linalg.norm(_embeddings, axis=1, keepdims=True)
-    norms = np.where(norms == 0, 1, norms)
-    normed = _embeddings / norms
-    q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
-
-    scores = (normed @ q_norm).flatten()
-
-    top_indices = np.argsort(scores)[::-1][:top_k]
+    q_emb = embed_text(query).astype("float32").reshape(1, -1)
+    k = min(top_k, _faiss_index.ntotal)
+    scores, indices = _faiss_index.search(q_emb, k)
 
     results = []
-    for idx in top_indices:
+    for score, idx in zip(scores[0], indices[0]):
+        if idx < 0:
+            break
         entry = dict(_metadata[idx])
-        entry["score"] = float(scores[idx])
+        entry["score"] = float(score)
         results.append(entry)
 
     return results
@@ -175,19 +187,22 @@ def search(query: str, top_k: int = 5) -> list:
 def get_stats() -> dict:
     return {
         "total_images": len(_metadata),
-        "embedding_dim": int(_embeddings.shape[1])
-        if _embeddings is not None and len(_embeddings) > 0
+        "embedding_dim": int(_faiss_index.d)
+        if _faiss_index is not None and _faiss_index.ntotal > 0
         else 0,
         "model_loaded": _model is not None,
         "has_gpu": torch.cuda.is_available(),
+        "index_type": type(_faiss_index).__name__
+        if _faiss_index is not None
+        else "none",
     }
 
 
 def reset():
-    global _embeddings, _metadata
-    _embeddings = None
+    global _faiss_index, _metadata
+    _faiss_index = None
     _metadata = []
-    for f in EMBEDDINGS_FILE, METADATA_FILE:
+    for f in FAISS_INDEX_FILE, METADATA_FILE:
         if f.exists():
             f.unlink()
     for d in [IMAGES_DIR, THUMBS_DIR]:
