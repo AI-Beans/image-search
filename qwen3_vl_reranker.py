@@ -1,14 +1,14 @@
 import os
 import torch
-import numpy as np
 import logging
 import unicodedata
 
 from PIL import Image
 from typing import List, Union, Optional, Dict
-from urllib.parse import urlparse
 from qwen_vl_utils import process_vision_info
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
+
+from vl_utils import is_image_path, is_video_input, sample_frames
 
 logger = logging.getLogger(__name__)
 
@@ -21,50 +21,6 @@ FPS = 1
 MAX_FRAMES = 64
 FRAME_MAX_PIXELS = 768 * IMAGE_FACTOR * IMAGE_FACTOR
 MAX_TOTAL_PIXELS = 10 * FRAME_MAX_PIXELS
-
-
-def is_image_path(path: str) -> bool:
-    image_extensions = {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".gif",
-        ".bmp",
-        ".webp",
-        ".tiff",
-        ".svg",
-    }
-    if path.startswith(("http://", "https://")):
-        parsed_url = urlparse(path)
-        clean_path = parsed_url.path
-    else:
-        clean_path = path
-    _, ext = os.path.splitext(clean_path.lower())
-    return ext in image_extensions
-
-
-def is_video_input(video) -> bool:
-    if isinstance(video, str):
-        return True
-    if isinstance(video, list) and len(video) > 0:
-        first_elem = video[0]
-        if isinstance(first_elem, Image.Image):
-            return True
-        if isinstance(first_elem, str):
-            return is_image_path(first_elem)
-    return False
-
-
-def sample_frames(
-    frames: List[Union[str, Image.Image]], max_segments: int
-) -> List[Union[str, Image.Image]]:
-    duration = len(frames)
-    if duration <= max_segments:
-        return frames
-    frame_id_array = np.linspace(0, duration - 1, max_segments, dtype=int)
-    frame_id_list = frame_id_array.tolist()
-    sampled_frames = [frames[frame_idx] for frame_idx in frame_id_list]
-    return sampled_frames
 
 
 class Qwen3VLReranker:

@@ -8,7 +8,7 @@ build/
 *.egg
 
 # Runtime data
-data/embeddings.npy
+data/faiss.index
 data/metadata.json
 images/uploaded/
 static/thumbnails/
@@ -34,3 +34,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Lint cache
+.ruff_cache/
+
+# Agent skills
+.agents/

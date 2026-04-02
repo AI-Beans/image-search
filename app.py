@@ -1,20 +1,26 @@
-import os
-import sys
 import json
-import uuid
-import time
+import logging
+import os
 import threading
+import time
+import uuid
 from pathlib import Path
-from datetime import datetime
 
 from flask import (
     Flask,
+    jsonify,
     render_template,
     request,
-    jsonify,
-    send_from_directory,
     send_file,
+    send_from_directory,
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
@@ -22,6 +28,9 @@ app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
 BASE_DIR = Path(__file__).parent
 UPLOAD_DIR = BASE_DIR / "images" / "uploaded"
 DATA_DIR = BASE_DIR / "data"
+
+ALLOWED_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp"})
+MAX_TOP_K = 50
 
 for d in [UPLOAD_DIR, DATA_DIR]:
     d.mkdir(parents=True, exist_ok=True)
@@ -54,6 +63,11 @@ def favicon():
     return send_file(str(BASE_DIR / "static" / "favicon.svg"), "image/svg+xml")
 
 
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/status")
 def status():
     has_index = (DATA_DIR / "metadata.json").exists()
@@ -62,13 +76,12 @@ def status():
         try:
             meta = json.loads((DATA_DIR / "metadata.json").read_text())
             total = len(meta)
-        except:
+        except (json.JSONDecodeError, OSError):
             pass
 
     try:
         import torch
 
-        device = "cuda"
         if torch.cuda.is_available():
             device = "cuda"
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -127,8 +140,9 @@ def load_model():
         try:
             get_engine()
             MODEL_LOADED = True
+            logger.info("Model loaded successfully")
         except Exception as e:
-            print(f"Model load error: {e}")
+            logger.error("Model load error: %s", e)
         finally:
             MODEL_LOADING = False
 
@@ -185,20 +199,21 @@ def index_images():
     saved_paths = []
     skipped = []
     for f in files:
-        if not f.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp")):
+        filename = f.filename or ""
+        if not filename.lower().endswith(tuple(ALLOWED_EXTENSIONS)):
             skipped.append(
                 {
-                    "name": f.filename,
+                    "name": filename,
                     "status": "skipped",
                     "reason": "unsupported format",
                 }
             )
             continue
-        ext = Path(f.filename).suffix
+        ext = Path(filename).suffix
         file_id = f"{uuid.uuid4().hex[:8]}{ext}"
         filepath = UPLOAD_DIR / file_id
         f.save(str(filepath))
-        saved_paths.append((str(filepath), f.filename))
+        saved_paths.append((str(filepath), filename))
 
     if not saved_paths:
         return jsonify({"results": skipped, "total_indexed": 0})
@@ -223,16 +238,16 @@ def index_images():
                     _index_progress["total"] = total
 
             paths = [p[0] for p in saved_paths]
-            batch_results = add_image_batch(
-                paths, batch_size=4, progress_callback=_on_progress
-            )
-            for br, (_, orig_name) in zip(batch_results, saved_paths):
+            batch_results = add_image_batch(paths, batch_size=4, progress_callback=_on_progress)
+            for br, (_, orig_name) in zip(batch_results, saved_paths, strict=True):
                 br["original_name"] = orig_name
             with _index_lock:
                 _index_progress["results"] = batch_results + skipped
                 _index_progress["total_indexed"] = len(batch_results)
                 _index_progress["done"] = True
+            logger.info("Indexed %d images", len(batch_results))
         except Exception as e:
+            logger.error("Background embedding failed: %s", e)
             with _index_lock:
                 _index_progress["error"] = str(e)
                 _index_progress["done"] = True
@@ -253,6 +268,9 @@ def index_progress():
 def search_images():
     global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
     query = data.get("query", "").strip()
     top_k = data.get("top_k", 5)
     use_reranker = data.get("use_reranker", False)
@@ -260,14 +278,16 @@ def search_images():
     if not query:
         return jsonify({"error": "Empty query"}), 400
 
+    if not isinstance(top_k, int) or top_k < 1:
+        return jsonify({"error": "top_k must be a positive integer"}), 400
+    top_k = min(top_k, MAX_TOP_K)
+
     if not MODEL_LOADED and SEARCH_ENGINE is None:
         try:
             get_engine()
             MODEL_LOADED = True
         except Exception as e:
             return jsonify({"error": f"Model not loaded: {e}"}), 500
-
-    import time
 
     try:
         start_time = time.time()
@@ -293,6 +313,7 @@ def search_images():
             }
         )
     except Exception as e:
+        logger.error("Search failed: %s", e)
         return jsonify({"error": f"Search failed: {e}"}), 500
 
 
@@ -302,7 +323,7 @@ def toggle_reranker():
     data = request.get_json() or {}
     enabled = data.get("enabled", False)
     try:
-        from embedder import set_reranker_enabled, get_reranker_status
+        from embedder import get_reranker_status, set_reranker_enabled
 
         set_reranker_enabled(enabled)
         status = get_reranker_status()
@@ -354,7 +375,7 @@ def reranker_status():
 @app.route("/api/stats")
 def stats():
     try:
-        from embedder import get_stats, get_current_model_info
+        from embedder import get_current_model_info, get_stats
 
         s = get_stats()
         s.update(get_current_model_info())
@@ -377,6 +398,7 @@ def reset_index():
 
     reset()
     SEARCH_ENGINE = None
+    logger.info("Index reset")
     return jsonify({"status": "reset complete"})
 
 
@@ -388,9 +410,9 @@ def serve_image(filename):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5200))
     model_path = os.environ.get("QWEN3VL_MODEL_PATH", "Qwen/Qwen3-VL-Embedding-8B")
-    print(f"\n{'=' * 60}")
-    print(f"  Image Semantic Search - Qwen3-VL-Embedding")
-    print(f"  Model: {model_path}")
-    print(f"  URL: http://localhost:{port}")
-    print(f"{'=' * 60}\n")
+    logger.info(
+        "Image Semantic Search - Qwen3-VL-Embedding | Model: %s | URL: http://localhost:%d",
+        model_path,
+        port,
+    )
     app.run(debug=False, host="0.0.0.0", port=port, threaded=True)
