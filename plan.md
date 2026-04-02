@@ -6,14 +6,17 @@
 - [x] requirements.txt 默认 faiss-gpu
 - [x] P0: HNSW 索引升级 — IndexHNSWFlat(M=32, efConstruction=200, efSearch=128)
 - [x] P1: INT8 量化 — IndexHNSWSQ (ScalarQuantizer QT_fp16, 内存减半)
+- [x] BFloat16 兼容修复 (embed_text/embed_image 返回 float32)
+- [x] 模型切换后端 API (/api/switch_model, 8B/2B)
+- [x] _load_index / _save_index 异常保护
+- [x] modelscope 依赖
 - [x] 删除冗余文件 (REPORT_检查报告.md)
 
-## P2: Reranker (按需)
+## TODO
 
-- 模型: Qwen3-VL-Reranker-8B
-- 交叉注意力架构, 精排比 Embedding 精度 +13-15%
-- 需额外加载 8B 模型, 显存翻倍
-- 待实际有精度需求时引入
+- [ ] 前端下拉选择器 (模型切换 UI)
+- [ ] favicon.svg
+- [ ] P2: Reranker (按需)
 
 ## P3: 不执行
 
@@ -22,12 +25,13 @@
 - 混合搜索 (BM25 + Dense): 当前不需要
 - 分布式架构: 当前不需要
 
-## 配置说明
+## 配置
 
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
-| `FAISS_USE_SQ` | `1` | 是否启用 INT8 量化 (设为 `0` 关闭) |
-| `QWEN3VL_MODEL_PATH` | `Qwen/Qwen3-VL-Embedding-8B` | 模型路径 |
+| FAISS_USE_SQ | 1 | 是否启用 fp16 量化 |
+| QWEN3VL_MODEL_PATH | Qwen/Qwen3-VL-Embedding-8B | 模型路径 |
+| QWEN3VL_MODEL_SIZE | 8b | 模型大小 (8b/2b) |
 
 ## HNSW 参数
 

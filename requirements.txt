@@ -8,3 +8,4 @@ numpy>=1.24
 faiss-gpu>=1.7
 # faiss-cpu>=1.7
 Pillow>=10.0
+modelscope

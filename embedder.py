@@ -26,42 +26,76 @@ HNSW_EF_CONSTRUCTION = 200
 HNSW_EF_SEARCH = 128
 USE_SQ = os.environ.get("FAISS_USE_SQ", "1") == "1"
 
+MODEL_MAP = {
+    "8b": "Qwen/Qwen3-VL-Embedding-8B",
+    "2b": "Qwen/Qwen3-VL-Embedding-2B",
+}
+
 _model = None
 _faiss_index = None
 _metadata = []
+_current_model_size = os.environ.get("QWEN3VL_MODEL_SIZE", "8b")
+
+
+def _model_path():
+    return os.environ.get(
+        "QWEN3VL_MODEL_PATH", MODEL_MAP.get(_current_model_size, MODEL_MAP["8b"])
+    )
 
 
 def get_model():
     global _model
     if _model is None:
-        model_path = os.environ.get("QWEN3VL_MODEL_PATH", "Qwen/Qwen3-VL-Embedding-8B")
-        print(f"Loading model from {model_path} ...")
+        path = _model_path()
+        print(f"Loading model from {path} ...")
         dtype = torch.float32
         if torch.cuda.is_available():
             dtype = torch.bfloat16
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             dtype = torch.float16
         _model = Qwen3VLEmbedder(
-            model_name_or_path=model_path,
+            model_name_or_path=path,
             torch_dtype=dtype,
         )
         print("Model loaded.")
     return _model
 
 
-def _create_index(dim):
-    index = faiss.IndexHNSWFlat(dim, HNSW_M, faiss.METRIC_INNER_PRODUCT)
-    index.hnsw.efConstruction = HNSW_EF_CONSTRUCTION
-    index.hnsw.efSearch = HNSW_EF_SEARCH
-    if USE_SQ:
-        sq = faiss.IndexScalarQuantizer(
-            dim, faiss.ScalarQuantizer_QT_fp16, faiss.METRIC_INNER_PRODUCT
+def switch_model(size: str) -> str:
+    global _model, _faiss_index, _metadata, _current_model_size
+    if size not in MODEL_MAP:
+        raise ValueError(
+            f"Unknown model size: {size}, choose from {list(MODEL_MAP.keys())}"
         )
+    _current_model_size = size
+    _model = None
+    _faiss_index = None
+    _metadata = []
+    for f in FAISS_INDEX_FILE, METADATA_FILE:
+        if f.exists():
+            f.unlink()
+    return MODEL_MAP[size]
+
+
+def get_current_model_info() -> dict:
+    path = _model_path()
+    name = path.split("/")[-1]
+    return {
+        "model_path": path,
+        "model_name": name,
+        "model_size": _current_model_size,
+    }
+
+
+def _create_index(dim):
+    if USE_SQ:
         index = faiss.IndexHNSWSQ(
             dim, faiss.ScalarQuantizer_QT_fp16, HNSW_M, faiss.METRIC_INNER_PRODUCT
         )
-        index.hnsw.efConstruction = HNSW_EF_CONSTRUCTION
-        index.hnsw.efSearch = HNSW_EF_SEARCH
+    else:
+        index = faiss.IndexHNSWFlat(dim, HNSW_M, faiss.METRIC_INNER_PRODUCT)
+    index.hnsw.efConstruction = HNSW_EF_CONSTRUCTION
+    index.hnsw.efSearch = HNSW_EF_SEARCH
     return index
 
 
@@ -73,20 +107,31 @@ def _ensure_index(dim):
 
 def _load_index():
     global _faiss_index, _metadata
-    if METADATA_FILE.exists():
-        with open(METADATA_FILE, "r") as f:
-            _metadata = json.load(f)
-    if FAISS_INDEX_FILE.exists():
-        _faiss_index = faiss.read_index(str(FAISS_INDEX_FILE))
-        if hasattr(_faiss_index, "hnsw"):
-            _faiss_index.hnsw.efSearch = HNSW_EF_SEARCH
+    try:
+        if METADATA_FILE.exists():
+            with open(METADATA_FILE, "r") as f:
+                _metadata = json.load(f)
+    except Exception as e:
+        print(f"Warning: failed to load metadata: {e}")
+        _metadata = []
+    try:
+        if FAISS_INDEX_FILE.exists():
+            _faiss_index = faiss.read_index(str(FAISS_INDEX_FILE))
+            if hasattr(_faiss_index, "hnsw"):
+                _faiss_index.hnsw.efSearch = HNSW_EF_SEARCH
+    except Exception as e:
+        print(f"Warning: failed to load FAISS index: {e}")
+        _faiss_index = None
 
 
 def _save_index():
-    if _faiss_index is not None and _faiss_index.ntotal > 0:
-        faiss.write_index(_faiss_index, str(FAISS_INDEX_FILE))
-    with open(METADATA_FILE, "w") as f:
-        json.dump(_metadata, f, ensure_ascii=False, indent=2)
+    try:
+        if _faiss_index is not None and _faiss_index.ntotal > 0:
+            faiss.write_index(_faiss_index, str(FAISS_INDEX_FILE))
+        with open(METADATA_FILE, "w") as f:
+            json.dump(_metadata, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Warning: failed to save index: {e}")
 
 
 _load_index()
@@ -95,13 +140,13 @@ _load_index()
 def embed_text(text: str) -> np.ndarray:
     model = get_model()
     result = model.process([{"text": text, "instruction": _instruction}])
-    return result.cpu().numpy().flatten()
+    return result.cpu().float().numpy().flatten()
 
 
 def embed_image(image_path: str) -> np.ndarray:
     model = get_model()
     result = model.process([{"image": image_path, "instruction": _instruction}])
-    return result.cpu().numpy().flatten()
+    return result.cpu().float().numpy().flatten()
 
 
 def add_image(image_path: str, filename: str) -> dict:
@@ -207,4 +252,5 @@ def reset():
             f.unlink()
     for d in [IMAGES_DIR, THUMBS_DIR]:
         for f in d.iterdir():
-            f.unlink()
+            if f.is_file():
+                f.unlink()

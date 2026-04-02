@@ -7,9 +7,16 @@ import threading
 from pathlib import Path
 from datetime import datetime
 
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import (
+    Flask,
+    render_template,
+    request,
+    jsonify,
+    send_from_directory,
+    send_file,
+)
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
 BASE_DIR = Path(__file__).parent
@@ -27,14 +34,7 @@ SEARCH_ENGINE = None
 def get_engine():
     global SEARCH_ENGINE
     if SEARCH_ENGINE is None:
-        from embedder import (
-            get_model,
-            search,
-            add_image_batch,
-            add_image,
-            get_stats,
-            reset,
-        )
+        from embedder import get_model
 
         get_model()
         SEARCH_ENGINE = True
@@ -44,6 +44,11 @@ def get_engine():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/favicon.svg")
+def favicon():
+    return send_file(str(BASE_DIR / "static" / "favicon.svg"), "image/svg+xml")
 
 
 @app.route("/api/status")
@@ -57,35 +62,39 @@ def status():
         except:
             pass
 
-    import torch
-    import faiss
+    try:
+        import torch
 
-    dim = 0
-    faiss_file = DATA_DIR / "faiss.index"
-    if faiss_file.exists():
-        try:
-            idx = faiss.read_index(str(faiss_file))
-            dim = idx.d
-        except:
-            pass
+        device = "cuda"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+        has_gpu = torch.cuda.is_available()
+    except Exception:
+        device = "cpu"
+        has_gpu = False
+
+    model_info = {}
+    try:
+        from embedder import get_current_model_info
+
+        model_info = get_current_model_info()
+    except Exception:
+        pass
 
     return jsonify(
         {
             "model_loaded": MODEL_LOADED or SEARCH_ENGINE is not None,
             "model_loading": MODEL_LOADING,
-            "has_gpu": torch.cuda.is_available(),
-            "device": "cuda"
-            if torch.cuda.is_available()
-            else (
-                "mps"
-                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-                else "cpu"
-            ),
+            "has_gpu": has_gpu,
+            "device": device,
             "total_images": total,
-            "embedding_dim": dim,
-            "model_path": os.environ.get(
-                "QWEN3VL_MODEL_PATH", "Qwen/Qwen3-VL-Embedding-8B"
-            ),
+            "model_path": model_info.get("model_path", "Qwen/Qwen3-VL-Embedding-8B"),
+            "model_name": model_info.get("model_name", "Qwen3-VL-Embedding-8B"),
+            "model_size": model_info.get("model_size", "8b"),
         }
     )
 
@@ -112,6 +121,34 @@ def load_model():
     t = threading.Thread(target=_load, daemon=True)
     t.start()
     return jsonify({"status": "loading_started"})
+
+
+@app.route("/api/switch_model", methods=["POST"])
+def switch_model_endpoint():
+    global MODEL_LOADED, MODEL_LOADING, SEARCH_ENGINE
+    data = request.get_json() or {}
+    size = data.get("model_size", "8b")
+    if size not in ("8b", "2b"):
+        return jsonify({"error": "Invalid model_size, use '8b' or '2b'"}), 400
+    if MODEL_LOADING:
+        return jsonify({"error": "Model is currently loading"}), 409
+
+    try:
+        from embedder import switch_model
+
+        new_path = switch_model(size)
+        MODEL_LOADED = False
+        SEARCH_ENGINE = None
+        return jsonify(
+            {
+                "status": "switched",
+                "model_size": size,
+                "model_path": new_path,
+                "message": "Model switched. Call /api/load_model to load the new model.",
+            }
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/index", methods=["POST"])
@@ -207,12 +244,13 @@ def search_images():
 
 @app.route("/api/stats")
 def stats():
-    from embedder import get_stats
-
     try:
+        from embedder import get_stats, get_current_model_info
+
         s = get_stats()
+        s.update(get_current_model_info())
         return jsonify(s)
-    except:
+    except Exception:
         return jsonify(
             {
                 "total_images": 0,
