@@ -1,0 +1,36 @@
+# Dependencies
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Runtime data
+data/embeddings.npy
+data/metadata.json
+images/uploaded/
+static/thumbnails/
+
+# Model weights (downloaded separately)
+models/
+
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
