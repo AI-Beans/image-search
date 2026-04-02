@@ -34,10 +34,21 @@
 
 ---
 
-## TODO | 待办
+## TODO
 
-- [ ] Frontend model dropdown selector / 前端模型下拉选择器
-- [ ] `favicon.svg`
+- [ ] Frontend model下拉选择器 (模型切换UI)
+- [ ] favicon.svg
+
+---
+
+## P3: Rejected | 不执行
+
+| Proposal | Reason |
+|----------|--------|
+| Qdrant migration | Over-engineering for current scale |
+| FastAPI replacing Flask | No measurable benefit |
+| Hybrid search (BM25 + Dense) | not needed for current use case |
+| Distributed architecture | Not needed for current scale |
 
 ---
 
