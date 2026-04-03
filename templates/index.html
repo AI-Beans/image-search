@@ -122,22 +122,23 @@ header{display:flex;align-items:center;justify-content:space-between;padding:24p
 .search-btn:active{transform:scale(.95);transition-duration:.1s}
 .search-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;transition:transform .3s var(--ease-spring)}
 .search-btn:hover svg{transform:rotate(90deg) scale(1.1)}
-.search-history{
-  position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);
-  border-radius:var(--radius);padding:6px;z-index:100;max-height:220px;overflow-y:auto;
-  transform:translateY(-6px) scale(.97);opacity:0;pointer-events:none;
-  transition:all .25s var(--ease-out-expo);backdrop-filter:blur(12px);
-  box-shadow:0 8px 32px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.3);
+.search-cloud{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:14px;min-height:28px}
+.search-cloud .cloud-tag{
+  padding:5px 13px;background:var(--bg3);border:1px solid var(--border);border-radius:50px;
+  font-size:12px;color:var(--text3);cursor:pointer;transition:all .25s var(--ease-smooth);
+  white-space:nowrap;display:inline-flex;align-items:center;gap:4px;
 }
-.search-history.show{transform:translateY(0) scale(1);opacity:1;pointer-events:auto}
-.search-history-item{padding:8px 12px;border-radius:var(--radius-sm);font-size:13px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .2s var(--ease-smooth)}
-.search-history-item:hover,.search-history-item:focus{background:var(--bg3);color:var(--text);transform:translateX(4px);outline:none}
-.search-history-item svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;opacity:.5;flex-shrink:0}
-.history-clear{font-size:12px;color:var(--text4);padding:8px 14px;border-top:1px solid var(--border);margin-top:4px;cursor:pointer;text-align:center;display:block;transition:color .2s}
-.history-clear:hover,.history-clear:focus{color:var(--text2)}
+.search-cloud .cloud-tag:hover,.search-cloud .cloud-tag:focus{
+  border-color:var(--accent);color:var(--accent);background:var(--accent-dim);
+  transform:translateY(-1px);outline:none
+}
+.search-cloud .cloud-tag .tag-del{
+  font-size:10px;opacity:.4;margin-left:2px;transition:opacity .15s
+}
+.search-cloud .cloud-tag:hover .tag-del{opacity:.7}
+.search-cloud-empty{font-size:12px;color:var(--text4);opacity:.6}
 
-.search-hints{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:20px;transition:margin-top .3s var(--ease-smooth),opacity .2s}
-.search-container:has(.search-history.show) .search-hints{margin-top:240px}
+.search-hints{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:12px}
 .hint-chip{
   padding:8px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:50px;font-size:13px;
   color:var(--text2);cursor:pointer;transition:all .3s var(--ease-spring);position:relative;
@@ -383,7 +384,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:24p
 Search
 </button>
 </div>
-<div class="search-history" id="searchHistory" role="listbox" aria-label="Search history"></div>
+<div class="search-cloud" id="searchCloud" aria-label="Search history"></div>
 <nav class="search-hints" aria-label="Quick search suggestions">
 <button class="hint-chip" type="button">children playing in water</button>
 <button class="hint-chip" type="button">sunset over ocean</button>
@@ -479,25 +480,21 @@ function saveHistory(q){
 }
 function renderHistory(){
   const h=getHistory();
-  const container=$('#searchHistory');
-  if(!h.length){container.classList.remove('show');return}
-  container.innerHTML=h.map(q=>`<div class="search-history-item" role="option" tabindex="0">${q}</div>`).join('')+
-    `<div class="history-clear" tabindex="0" role="button">Clear history</div>`;
-  container.classList.add('show');
-  container.querySelectorAll('.search-history-item').forEach(el=>{
-    el.addEventListener('click',()=>setQuery(el.textContent));
-    el.addEventListener('keydown',e=>{if(e.key==='Enter')setQuery(el.textContent)});
+  const container=$('#searchCloud');
+  if(!h.length){container.innerHTML='<span class="search-cloud-empty">Recent searches will appear here</span>';return}
+  container.innerHTML=h.map((q,i)=>`<button class="cloud-tag" style="animation:fadeIn .3s var(--ease-smooth) ${i*40}ms both" data-q="${q.replace(/"/g,'&quot;')}">${q}<span class="tag-del" title="Remove">×</span></button>`).join('');
+  container.querySelectorAll('.cloud-tag').forEach(el=>{
+    el.addEventListener('click',e=>{
+      if(e.target.classList.contains('tag-del')){
+        const q=el.dataset.q;
+        let hist=getHistory().filter(x=>x!==q);
+        localStorage.setItem('searchHistory',JSON.stringify(hist));
+        el.style.opacity='0';el.style.transform='scale(.8)';
+        setTimeout(()=>renderHistory(),200);
+      }else{setQuery(el.dataset.q)}
+    });
   });
-  const clearBtn=container.querySelector('.history-clear');
-  if(clearBtn){
-    clearBtn.addEventListener('click',()=>{localStorage.removeItem('searchHistory');container.classList.remove('show')});
-    clearBtn.addEventListener('keydown',e=>{if(e.key==='Enter'){localStorage.removeItem('searchHistory');container.classList.remove('show')}});
-  }
 }
-
-$('#searchInput').addEventListener('focus',renderHistory);
-$('#searchInput').addEventListener('blur',()=>setTimeout(()=>$('#searchHistory').classList.remove('show'),200));
-$('#searchInput').addEventListener('input',()=>$('#searchHistory').classList.remove('show'));
 
 async function checkStatus(){
   try{
@@ -790,6 +787,7 @@ document.querySelectorAll('.search-hints .hint-chip').forEach(chip=>{
 $('#resetBtn').addEventListener('click',resetIndex);
 
 checkStatus();
+renderHistory();
 setInterval(checkStatus,5000);
 </script>
 </body>
